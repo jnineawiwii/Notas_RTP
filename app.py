@@ -7,6 +7,7 @@ import plotly.express as px
 import pdfplumber
 import google.generativeai as genai
 from datetime import datetime
+import json
 
 # Configuración de página
 st.set_page_config(
@@ -27,7 +28,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚌 Monitoreo y Seguimiento en Medios - RTP")
-st.caption("Procesamiento inteligente de síntesis informativas, PDFs y reportes Excel.")
+st.caption("Procesamiento inteligente con IA para síntesis informativas, PDFs y reportes Excel.")
 
 # Columnas oficiales según la plantilla SM_RTP_26_Ok.xlsx
 OFFICIAL_COLUMNS = [
@@ -50,7 +51,7 @@ OFFICIAL_COLUMNS = [
 
 # Configuración de IA Gemini
 st.sidebar.header("🤖 Configuración de IA (Gemini)")
-api_key = st.sidebar.text_input("Gemini API Key (Opcional):", type="password")
+api_key = st.sidebar.text_input("Gemini API Key (Obligatoria para IA):", type="password")
 use_ai = False
 model = None
 
@@ -63,6 +64,9 @@ if api_key:
     except Exception as e:
         st.sidebar.error(f"⚠️ Error al configurar IA: {e}")
         use_ai = False
+else:
+    st.sidebar.warning("⚠️ Se requiere API Key de Gemini para procesar PDFs")
+    st.sidebar.info("Obtén tu API Key en: https://ai.google.dev")
 
 def clean_sentiment(val):
     if pd.isna(val):
@@ -79,309 +83,161 @@ def map_campana(sentiment):
         return "RTP avanza"
     return "RTP informa"
 
-def detect_media_type(text):
-    """Detecta el tipo de medio basado en el texto"""
-    text_lower = text.lower()
-    if 'twitter' in text_lower or 'x.com' in text_lower or 'facebook' in text_lower:
-        return 'OTROS (Twitter, Facebook, You Tube, etc.).'
-    elif 'youtube' in text_lower or 'tiktok' in text_lower:
-        return 'OTROS (Twitter, Facebook, You Tube, etc.).'
-    elif 'radio' in text_lower or 'fm' in text_lower:
-        return 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * '
-    elif 'televisa' in text_lower or 'tv' in text_lower or 'canal' in text_lower:
-        return 'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *'
-    elif '.com' in text_lower or 'portal' in text_lower:
-        return 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *'
-    else:
-        return 'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *'
-
-def extract_author(text):
-    """Intenta extraer el autor del texto"""
-    patterns = [
-        r'(?:Autor(?:a)?|Por|Escrito por|Redacción|Fotos?)\s*[:：]?\s*([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*)',
-        r'([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*)\s*(?:[A-Z]{2,}|\d+)?$',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.MULTILINE)
-        if match:
-            return match.group(1).strip()
-    return "Redacción"
-
-def extract_links(text):
-    """Extrae URLs del texto"""
-    urls = re.findall(r'https?://[^\s\n<>"]+', text)
-    return urls[0] if urls else ""
-
-def extract_title_from_line(line):
-    """Intenta extraer un título de una línea de texto"""
-    line = line.strip()
-    if not line:
-        return None
-    
-    # Eliminar números de página o indicadores de sección al inicio
-    line = re.sub(r'^\d+\s*', '', line)
-    
-    # Si la línea es corta o tiene caracteres especiales, probablemente es un título
-    if len(line) < 100 and not line.endswith('.') and not line.endswith(','):
-        # Verificar que no sea un encabezado de sección conocido
-        skip_patterns = [
-            r'^SÍNTESIS INFORMATIVA',
-            r'^NOTAS DE MOVILIDAD',
-            r'^RED DE TRANSPORTE',
-            r'^Página',
-            r'^MEDIOS:',
-            r'^[A-Z\s]{10,}$'  # Solo mayúsculas sin contenido
-        ]
-        for pattern in skip_patterns:
-            if re.match(pattern, line, re.IGNORECASE):
-                return None
-        return line
-    return None
-
-def process_pdf_content(full_text):
-    """Procesa el texto del PDF dividiéndolo en notas individuales"""
-    records = []
-    
-    # Dividir por páginas o secciones
-    lines = full_text.split('\n')
-    
-    # Buscar estructura de "SÍNTESIS INFORMATIVA" y "NOTAS DE MOVILIDAD"
-    current_section = "notas"
-    current_note = {}
-    buffer = []
-    titles_found = []
-    
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        
-        # Detectar secciones
-        if "SÍNTESIS INFORMATIVA" in line.upper():
-            current_section = "sintesis"
-            i += 1
-            continue
-        elif "NOTAS DE MOVILIDAD" in line.upper():
-            current_section = "notas"
-            i += 1
-            continue
-        elif "MEDIOS:" in line:
-            # Esta línea contiene el medio
-            if buffer:
-                # Procesar nota anterior
-                note_text = '\n'.join(buffer)
-                title = extract_titles_from_buffer(buffer, titles_found)
-                if title:
-                    record = create_record_from_note(note_text, title)
-                    if record:
-                        # Agregar medio desde esta línea
-                        media_match = re.search(r'MEDIOS:\s*(.*?)(?:\s*https?://|\s*$)', line, re.IGNORECASE)
-                        if media_match:
-                            record['MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *'] = media_match.group(1).strip()
-                        records.append(record)
-                buffer = []
-                titles_found = []
-            i += 1
-            continue
-        
-        # Intentar extraer título de la línea
-        potential_title = extract_title_from_line(line)
-        if potential_title and len(potential_title) > 5:
-            titles_found.append(potential_title)
-            # Si hay un título y buffer no está vacío, es una nueva nota
-            if buffer and len(buffer) > 3:
-                note_text = '\n'.join(buffer)
-                title = extract_titles_from_buffer(buffer, titles_found[:-1]) or titles_found[-2] if len(titles_found) > 1 else None
-                if title:
-                    record = create_record_from_note(note_text, title)
-                    if record:
-                        records.append(record)
-                buffer = [line]
-            else:
-                buffer.append(line)
-        elif line and len(line) > 10:
-            buffer.append(line)
-        
-        i += 1
-    
-    # Procesar última nota
-    if buffer:
-        note_text = '\n'.join(buffer)
-        title = extract_titles_from_buffer(buffer, titles_found)
-        if title:
-            record = create_record_from_note(note_text, title)
-            if record:
-                records.append(record)
-    
-    return records
-
-def extract_titles_from_buffer(buffer, titles_found):
-    """Extrae el título más probable de un buffer de líneas"""
-    for line in buffer[:5]:
-        title = extract_title_from_line(line)
-        if title:
-            return title
-    # Si no se encontró, buscar en títulos encontrados
-    for title in titles_found:
-        if title and len(title) > 5:
-            return title
-    return None
-
-def create_record_from_note(text, title):
-    """Crea un registro estructurado a partir de una nota"""
-    if not text or len(text) < 20:
-        return None
-    
-    # Limpiar título
-    title = re.sub(r'^\d+\s*', '', title).strip()
-    
-    # Usar IA si está disponible
-    ai_data = None
-    if use_ai and model:
-        ai_data = analyze_with_ai(text, model)
-    
-    if ai_data:
-        final_title = ai_data.get('titulo', title)
-        resumen = ai_data.get('resumen', extract_summary(text))
-        tono = ai_data.get('tono', 'Informativo')
-        relevante = ai_data.get('relevante', 'Sí' if 'rtp' in text.lower() else 'No')
-        tema = ai_data.get('tema', f"Nota: {final_title[:50]}")
-        autor = ai_data.get('autor', extract_author(text))
-    else:
-        final_title = title
-        resumen = extract_summary(text)
-        tono = "Positivo" if "positivo" in text.lower() else "Negativo" if "negativo" in text.lower() else "Informativo"
-        relevante = "Sí" if "rtp" in text.lower() else "No"
-        tema = f"Nota: {final_title[:50]}"
-        autor = extract_author(text)
-    
-    # Detectar medio
-    medio_digital = detect_media_type(text)
-    
-    # Buscar medio específico en el texto
-    media_match = re.search(r'MEDIOS?:\s*([A-ZÁÉÍÓÚÑ][a-záéíóúñ\s]+(?:,\s*[A-ZÁÉÍÓÚÑ][a-záéíóúñ\s]+)*)', text, re.IGNORECASE)
-    if media_match:
-        medio_digital = media_match.group(1).strip()
-    
-    link = extract_links(text)
-    
-    record = {
-        'Año': datetime.now().year,
-        '# Mes': datetime.now().month,
-        'Mes': datetime.now().strftime("%B").capitalize(),
-        'Fecha ': datetime.now().strftime("%Y-%m-%d"),
-        'Título de la nota': final_title,
-        'RTP, ¿Es relevante en la nota?': relevante,
-        'Tema de la nota': tema,
-        'Campaña': map_campana(tono),
-        'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ': None,
-        'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *': None,
-        'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *': medio_digital,
-        'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *': None,
-        'OTROS (Twitter, Facebook, You Tube, etc.).': None,
-        'Informativo / Positivo/ Negativo': tono,
-        'LINK': link,
-        'Autor': autor,
-        'PUBLICACIÓN BOLETÍN': 'NO',
-        'RESUMEN  DE LA NOTA (RTP)': resumen
-    }
-    return record
-
-def analyze_with_ai(text, model):
-    """Usa Gemini AI para analizar el texto de la nota"""
+def analyze_pdf_with_ai(full_text, model):
+    """Usa Gemini IA para analizar TODO el PDF y extraer todas las notas estructuradas"""
     if not model:
         return None
     
     prompt = f"""
-    Analiza la siguiente nota periodística sobre la Red de Transporte de Pasajeros (RTP) de la CDMX.
+    Eres un asistente especializado en análisis de notas periodísticas sobre la Red de Transporte de Pasajeros (RTP) de la CDMX.
     
-    Texto de la nota:
-    {text[:3000]}
+    Analiza el siguiente texto de un PDF que contiene una SÍNTESIS INFORMATIVA con varias notas de medios.
     
-    Extrae la siguiente información en formato JSON:
-    {{
-        "titulo": "El título principal de la nota",
-        "resumen": "Un resumen conciso de la nota (máximo 200 palabras)",
-        "tono": "Positivo, Negativo o Informativo",
-        "relevante": "Sí o No dependiendo si RTP es relevante",
-        "tema": "El tema principal de la nota",
-        "autor": "El autor si se menciona"
-    }}
+    TEXTO COMPLETO DEL PDF:
+    {full_text[:8000]}
     
-    Responde SOLO con el JSON, sin texto adicional.
+    Tu tarea es extraer CADA UNA de las notas periodísticas que aparecen en el texto y estructurarlas en un formato JSON.
+    
+    Para CADA NOTA, debes identificar y extraer:
+    1. "titulo": El título o encabezado principal de la nota (la línea que introduce la noticia)
+    2. "resumen": El contenido/resumen de la nota (máximo 300 palabras)
+    3. "medio": El nombre del medio de comunicación (ej: El Universal, Reforma, La Jornada, etc.)
+    4. "tono": Clasifica como "Positivo", "Negativo" o "Informativo" según el enfoque de la nota
+    5. "relevante": "Sí" si la nota habla sobre RTP, "No" si no es relevante
+    6. "tema": El tema principal de la nota (ej: "Movilidad CDMX", "Unidades de RTP", "Accidentes", etc.)
+    7. "autor": El nombre del autor o redacción si se menciona
+    8. "link": La URL si aparece en el texto
+    9. "categoria_medio": Clasifica el medio como:
+       - "Digital" para portales de noticias, sitios web
+       - "Impreso" para periódicos físicos
+       - "Radio" para estaciones de radio
+       - "TV" para canales de televisión
+       - "Redes Sociales" para Twitter, Facebook, etc.
+    
+    IMPORTANTE: Identifica dónde comienza y termina cada nota. Busca patrones como:
+    - Líneas con "MEDIOS:" que indican el medio
+    - Títulos en mayúsculas o con formato de encabezado
+    - Separaciones entre notas (líneas en blanco, números, etc.)
+    
+    Responde SOLO con un array JSON válido donde cada elemento es una nota.
+    Formato de respuesta:
+    [
+        {{
+            "titulo": "...",
+            "resumen": "...",
+            "medio": "...",
+            "tono": "...",
+            "relevante": "...",
+            "tema": "...",
+            "autor": "...",
+            "link": "...",
+            "categoria_medio": "..."
+        }},
+        ...
+    ]
     """
     
     try:
-        response = model.generate_content(prompt)
-        response_text = response.text
-        
-        # Limpiar respuesta
-        json_match = re.search(r'\{[^{}]*\}', response_text, re.DOTALL)
-        if json_match:
-            import json
-            return json.loads(json_match.group())
-        return None
+        with st.spinner("🧠 Analizando el PDF con IA..."):
+            response = model.generate_content(prompt)
+            response_text = response.text
+            
+            # Limpiar respuesta - extraer JSON
+            json_match = re.search(r'\[\s*\{.*\}\s*\]', response_text, re.DOTALL)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group())
+                    return data
+                except json.JSONDecodeError as e:
+                    st.warning(f"⚠️ Error al decodificar JSON: {e}")
+                    # Intentar reparar JSON común
+                    fixed_text = re.sub(r'},\s*]', '}]', response_text)
+                    fixed_text = re.sub(r',\s*}', '}', fixed_text)
+                    try:
+                        return json.loads(fixed_text)
+                    except:
+                        return None
+            return None
     except Exception as e:
-        st.warning(f"⚠️ Error en análisis IA: {e}")
+        st.error(f"❌ Error en análisis IA: {e}")
         return None
 
-def extract_summary(text, max_len=500):
-    """Extrae un resumen del texto"""
-    # Buscar secciones de resumen
-    summary_patterns = [
-        r'(?:Resumen|Síntesis|En resumen)\s*[:：]?\s*([^\n]+)',
-        r'(?:La nota|El artículo|El reporte|La información)\s*(?:[^\n]{50,})'
-    ]
+def process_pdf_file(pdf_file, model):
+    """Procesa un archivo PDF usando IA para extraer notas estructuradas"""
+    if not model:
+        st.error("❌ Se requiere IA (Gemini) para procesar PDFs")
+        return pd.DataFrame()
     
-    for pattern in summary_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()[:max_len]
-    
-    # Si no hay resumen, tomar las primeras líneas significativas
-    lines = [l.strip() for l in text.split('\n') if l.strip() and len(l.strip()) > 30]
-    if lines:
-        summary = lines[0]
-        if len(lines) > 1 and len(summary) < 100:
-            summary += " " + lines[1]
-        return summary[:max_len]
-    
-    return text[:max_len].replace('\n', ' ') + "..."
-
-def process_pdf_file(pdf_file):
-    """Procesa un archivo PDF extrayendo notas estructuradas"""
-    records = []
-    
+    # Extraer texto del PDF
+    full_text = ""
     with pdfplumber.open(pdf_file) as pdf:
-        full_text = ""
         for page in pdf.pages:
             text = page.extract_text() or ""
             full_text += text + "\n"
-        
-        if not full_text.strip():
-            st.error("❌ No se pudo extraer texto del PDF")
-            return pd.DataFrame()
-        
-        # Mostrar vista previa del texto para debugging
-        with st.expander("📄 Vista previa del texto extraído"):
-            st.text(full_text[:2000])
-        
-        # Procesar el texto
-        records = process_pdf_content(full_text)
     
-    if not records:
-        st.warning("⚠️ No se pudieron identificar notas en el PDF. Verifica el formato.")
-        # Intentar método alternativo: dividir por líneas en blanco
-        st.info("🔄 Intentando método alternativo de división...")
-        sections = re.split(r'\n\s*\n', full_text)
-        sections = [s for s in sections if len(s.strip()) > 50]
+    if not full_text.strip():
+        st.error("❌ No se pudo extraer texto del PDF")
+        return pd.DataFrame()
+    
+    # Mostrar vista previa del texto
+    with st.expander("📄 Vista previa del texto extraído (primeros 2000 caracteres)"):
+        st.text(full_text[:2000] + ("..." if len(full_text) > 2000 else ""))
+    
+    # Analizar con IA
+    ai_results = analyze_pdf_with_ai(full_text, model)
+    
+    if not ai_results:
+        st.error("❌ La IA no pudo extraer información estructurada. Verifica el formato del PDF.")
+        return pd.DataFrame()
+    
+    # Convertir resultados a DataFrame
+    records = []
+    today = datetime.now()
+    
+    for note in ai_results:
+        # Asegurar que todos los campos existan
+        titulo = note.get('titulo', 'Sin título')
+        resumen = note.get('resumen', '')
+        medio = note.get('medio', '')
+        tono = note.get('tono', 'Informativo')
+        relevante = note.get('relevante', 'Sí' if 'rtp' in resumen.lower() else 'No')
+        tema = note.get('tema', f"Nota: {titulo[:50]}")
+        autor = note.get('autor', 'Redacción')
+        link = note.get('link', '')
+        categoria = note.get('categoria_medio', 'Digital')
         
-        for section in sections:
-            lines = section.split('\n')
-            first_line = lines[0].strip() if lines else ""
-            title = extract_title_from_line(first_line) or first_line[:50]
-            record = create_record_from_note(section, title)
-            if record:
-                records.append(record)
+        # Mapear categoría de medio a columna
+        medio_column = 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *'
+        if categoria == 'Impreso':
+            medio_column = 'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *'
+        elif categoria == 'Radio':
+            medio_column = 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * '
+        elif categoria == 'TV':
+            medio_column = 'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *'
+        elif categoria == 'Redes Sociales':
+            medio_column = 'OTROS (Twitter, Facebook, You Tube, etc.).'
+        
+        record = {
+            'Año': today.year,
+            '# Mes': today.month,
+            'Mes': today.strftime("%B").capitalize(),
+            'Fecha ': today.strftime("%Y-%m-%d"),
+            'Título de la nota': titulo,
+            'RTP, ¿Es relevante en la nota?': relevante,
+            'Tema de la nota': tema,
+            'Campaña': map_campana(tono),
+            'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ': medio if categoria == 'Radio' else None,
+            'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *': medio if categoria == 'TV' else None,
+            'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *': medio if categoria == 'Digital' else None,
+            'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *': medio if categoria == 'Impreso' else None,
+            'OTROS (Twitter, Facebook, You Tube, etc.).': medio if categoria == 'Redes Sociales' else None,
+            'Informativo / Positivo/ Negativo': tono,
+            'LINK': link,
+            'Autor': autor,
+            'PUBLICACIÓN BOLETÍN': 'NO',
+            'RESUMEN  DE LA NOTA (RTP)': resumen
+        }
+        records.append(record)
     
     return pd.DataFrame(records)
 
@@ -395,6 +251,7 @@ manual_url = st.sidebar.text_input("URL de la nota:")
 manual_titulo = st.sidebar.text_input("Título:")
 manual_resumen = st.sidebar.text_area("Resumen:", height=100)
 manual_medio = st.sidebar.text_input("Medio:", placeholder="Ej: El Universal, Reforma, etc.")
+manual_tono = st.sidebar.selectbox("Tono:", ["Informativo", "Positivo", "Negativo"])
 
 df = pd.DataFrame()
 
@@ -407,10 +264,15 @@ if uploaded_file:
             df = pd.read_excel(uploaded_file, sheet_name=sheet)
             st.success("✅ Archivo Excel cargado correctamente")
         elif ext == "pdf":
-            with st.spinner("📄 Procesando PDF con IA..."):
-                df = process_pdf_file(uploaded_file)
-            if not df.empty:
-                st.success(f"✅ PDF procesado: {len(df)} notas extraídas")
+            if not use_ai:
+                st.error("❌ Se requiere API Key de Gemini para procesar PDFs")
+                st.info("Obtén tu API Key en: https://ai.google.dev")
+            else:
+                df = process_pdf_file(uploaded_file, model)
+                if not df.empty:
+                    st.success(f"✅ PDF procesado con IA: {len(df)} notas extraídas")
+                else:
+                    st.warning("⚠️ No se pudieron extraer notas del PDF")
     except Exception as e:
         st.error(f"❌ Error al procesar archivo: {e}")
 
@@ -424,13 +286,13 @@ if manual_url and manual_titulo:
         'Título de la nota': manual_titulo,
         'RTP, ¿Es relevante en la nota?': 'Sí' if 'rtp' in manual_titulo.lower() or 'rtp' in manual_resumen.lower() else 'No',
         'Tema de la nota': manual_titulo[:50],
-        'Campaña': 'RTP avanza' if 'positivo' in manual_resumen.lower() else 'RTP informa',
+        'Campaña': map_campana(manual_tono),
         'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ': None,
         'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *': None,
         'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *': manual_medio or 'Portal Digital',
         'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *': None,
         'OTROS (Twitter, Facebook, You Tube, etc.).': None,
-        'Informativo / Positivo/ Negativo': 'Positivo' if 'positivo' in manual_resumen.lower() else 'Informativo',
+        'Informativo / Positivo/ Negativo': manual_tono,
         'LINK': manual_url,
         'Autor': 'Usuario',
         'PUBLICACIÓN BOLETÍN': 'NO',
@@ -573,20 +435,32 @@ else:
     # Mostrar ayuda
     with st.expander("📖 ¿Cómo usar esta herramienta?"):
         st.markdown("""
+        ### 🧠 Sistema de Análisis con IA
+        
+        Este sistema usa **Gemini AI** para extraer automáticamente la información de los PDFs.
+        
         ### Instrucciones de uso:
         
-        1. **Sube un archivo** (Excel o PDF) en la barra lateral
-        2. **Opcional**: Activa la IA con tu API Key de Gemini para mejor análisis
-        3. **Agrega notas manuales** si lo deseas
-        4. **Explora** las pestañas de gráficas y tablas
-        5. **Exporta** el resultado en formato Excel
+        1. **Obtén tu API Key** en [ai.google.dev](https://ai.google.dev)
+        2. **Pega tu API Key** en la barra lateral
+        3. **Sube un archivo PDF** con la síntesis informativa
+        4. La IA extraerá automáticamente:
+           - Títulos de las notas
+           - Resúmenes
+           - Medio de comunicación
+           - Tono (Positivo/Negativo/Informativo)
+           - Autor
+           - Links
+           - Categoría del medio
+        5. **Explora** las pestañas de gráficas y tablas
+        6. **Exporta** el resultado en formato Excel
         
         ### Formatos soportados:
-        - **Excel**: Archivos con estructura similar a la plantilla de RTP
-        - **PDF**: Síntesis informativas con notas periodísticas
-        - **Manual**: Ingreso directo de URL, título y resumen
+        - **Excel**: Archivos con estructura de la plantilla de RTP
+        - **PDF**: Síntesis informativas (procesadas con IA)
+        - **Manual**: Ingreso directo de notas
         
-        ### Requisitos para IA (Gemini):
-        - Obtén tu API Key en [ai.google.dev](https://ai.google.dev)
-        - La IA ayuda a extraer: título, resumen, tono, autor y medio
+        ### Ejemplo de PDF que funciona:
+        - Síntesis informativa con encabezados "SÍNTESIS INFORMATIVA" y "NOTAS DE MOVILIDAD"
+        - Notas separadas con títulos y mención del medio
         """)
