@@ -16,7 +16,6 @@ st.set_page_config(
 # Estilos visuales mejorados con colores
 st.markdown("""
 <style>
-    /* Badges para tono */
     .badge-positivo { background-color: #28a745; color: white; padding: 4px 10px; border-radius: 5px; font-weight: bold; }
     .badge-informativo { background-color: #ffc107; color: black; padding: 4px 10px; border-radius: 5px; font-weight: bold; }
     .badge-negativo { background-color: #dc3545; color: white; padding: 4px 10px; border-radius: 5px; font-weight: bold; }
@@ -89,7 +88,6 @@ st.markdown("""
     }
     .campo-tema span { color: #6f42c1; font-weight: normal; }
     
-    /* Texto extraído con resaltado */
     .texto-extraido {
         background-color: #f8f9fa;
         border: 2px solid #dee2e6;
@@ -101,16 +99,51 @@ st.markdown("""
         max-height: 400px;
         overflow-y: auto;
         white-space: pre-wrap;
+        user-select: text;
     }
     
-    .texto-extraido .highlight-titulo { background-color: #cce5ff; padding: 2px 6px; border-radius: 3px; border: 2px solid #007bff; }
-    .texto-extraido .highlight-resumen { background-color: #d4edda; padding: 2px 6px; border-radius: 3px; border: 2px solid #28a745; }
-    .texto-extraido .highlight-medio { background-color: #fff3cd; padding: 2px 6px; border-radius: 3px; border: 2px solid #ffc107; }
-    .texto-extraido .highlight-autor { background-color: #f8d7da; padding: 2px 6px; border-radius: 3px; border: 2px solid #dc3545; }
-    .texto-extraido .highlight-link { background-color: #d1ecf1; padding: 2px 6px; border-radius: 3px; border: 2px solid #17a2b8; }
-    .texto-extraido .highlight-tema { background-color: #e8d5f5; padding: 2px 6px; border-radius: 3px; border: 2px solid #6f42c1; }
+    .texto-extraido .hl-titulo { background-color: #cce5ff; padding: 2px 6px; border-radius: 3px; border: 2px solid #007bff; }
+    .texto-extraido .hl-resumen { background-color: #d4edda; padding: 2px 6px; border-radius: 3px; border: 2px solid #28a745; }
+    .texto-extraido .hl-medio { background-color: #fff3cd; padding: 2px 6px; border-radius: 3px; border: 2px solid #ffc107; }
+    .texto-extraido .hl-autor { background-color: #f8d7da; padding: 2px 6px; border-radius: 3px; border: 2px solid #dc3545; }
+    .texto-extraido .hl-link { background-color: #d1ecf1; padding: 2px 6px; border-radius: 3px; border: 2px solid #17a2b8; }
+    .texto-extraido .hl-tema { background-color: #e8d5f5; padding: 2px 6px; border-radius: 3px; border: 2px solid #6f42c1; }
     
-    /* Botón de descarga grande */
+    .leyenda-colores {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 10px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        margin: 10px 0;
+        border: 1px solid #dee2e6;
+    }
+    .leyenda-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+    }
+    .leyenda-color {
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+    }
+    
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .stTabs [data-baseweb="tab"] { 
+        border-radius: 8px 8px 0px 0px; 
+        padding: 12px 20px; 
+        background-color: #f0f2f6;
+        font-weight: bold;
+    }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background-color: #007bff;
+        color: white;
+    }
+    
     .btn-descarga-grande {
         background-color: #28a745;
         color: white;
@@ -128,51 +161,14 @@ st.markdown("""
     .btn-descarga-grande:hover {
         background-color: #218838;
         transform: scale(1.02);
-        box-shadow: 0 6px 12px rgba(0,0,0,0.2);
-    }
-    
-    /* Tabs mejorados */
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] { 
-        border-radius: 8px 8px 0px 0px; 
-        padding: 12px 20px; 
-        background-color: #f0f2f6;
-        font-weight: bold;
-    }
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        background-color: #007bff;
-        color: white;
-    }
-    
-    /* Leyenda de colores */
-    .leyenda-colores {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        padding: 10px;
-        background: #f8f9fa;
-        border-radius: 8px;
-        margin: 10px 0;
-    }
-    .leyenda-item {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 13px;
-    }
-    .leyenda-color {
-        width: 20px;
-        height: 20px;
-        border-radius: 4px;
-        border: 1px solid #ccc;
     }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🚌 Captura de Notas - Monitoreo RTP")
-st.caption("Selecciona el texto del PDF y asígnalo a cada campo de la nota")
+st.caption("Selecciona texto del PDF y asígnalo a cada campo de la nota")
 
-# Columnas oficiales (18 columnas)
+# Columnas oficiales
 OFFICIAL_COLUMNS = [
     'Año', '# Mes', 'Mes', 'Fecha ',
     'Título de la nota',
@@ -207,7 +203,6 @@ def map_campana(sentiment):
     return "RTP informa"
 
 def extract_pdf_text(pdf_file):
-    """Extrae todo el texto del PDF"""
     full_text = ""
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -216,40 +211,30 @@ def extract_pdf_text(pdf_file):
     return full_text
 
 def split_into_notes(text):
-    """Divide el texto en notas individuales"""
     notes = []
-    
-    # Método 1: Buscar "MEDIOS:" como separador
     sections = re.split(r'(?=\n\s*MEDIOS?:)', text)
-    
     if len(sections) > 1:
         for section in sections:
             if len(section.strip()) > 50:
                 notes.append(section.strip())
     else:
-        # Método 2: Dividir por líneas en blanco
         sections = re.split(r'\n\s*\n', text)
         for section in sections:
             if len(section.strip()) > 100:
                 notes.append(section.strip())
-    
-    # Si no hay secciones, tratar todo como una nota
     if not notes and text.strip():
         notes = [text.strip()]
-    
     return notes
 
 def auto_detect_fields(text):
-    """Detecta automáticamente campos del texto"""
-    fields = {}
+    fields = {'texto_original': text}
     lines = text.split('\n')
     
-    # Buscar título (primera línea significativa)
+    # Buscar título
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        # Saltar encabezados de sección
         if any(x in line.upper() for x in ['SÍNTESIS INFORMATIVA', 'NOTAS DE MOVILIDAD', 'RED DE TRANSPORTE']):
             continue
         if len(line) < 100 and (line.isupper() or (line[0].isupper() and not line.endswith(('.', ':')))):
@@ -271,7 +256,7 @@ def auto_detect_fields(text):
     if link_match:
         fields['link'] = link_match.group(0)
     
-    # Buscar resumen (el resto del texto después del título)
+    # Resumen
     if fields.get('titulo'):
         text_parts = text.split(fields['titulo'])
         if len(text_parts) > 1:
@@ -282,100 +267,61 @@ def auto_detect_fields(text):
     else:
         fields['resumen'] = text[:500]
     
-    # Detectar tono
+    # Tono
     text_lower = text.lower()
     if 'positivo' in text_lower or 'avanza' in text_lower or 'éxito' in text_lower:
         fields['tono'] = 'Positivo'
-    elif 'negativo' in text_lower or 'problema' in text_lower or 'falla' in text_lower or 'queja' in text_lower:
+    elif 'negativo' in text_lower or 'problema' in text_lower or 'falla' in text_lower:
         fields['tono'] = 'Negativo'
     else:
         fields['tono'] = 'Informativo'
     
-    # Detectar relevancia
     fields['relevante'] = 'Sí' if 'rtp' in text_lower else 'No'
     
-    # Detectar tema (por palabras clave)
+    # Tema
     temas = {
-        'Movilidad CDMX': ['movilidad', 'transporte', 'ruta', 'recorrido', 'metro', 'metrobús'],
-        'Unidades de RTP': ['unidad', 'autobús', 'flota', 'camión', 'vehículo'],
-        'Accidentes': ['accidente', 'choque', 'atropell', 'siniestro', 'colisión'],
-        'Sindicato': ['sindicato', 'trabajador', 'huelga', 'paro', 'protesta'],
-        'Mantenimiento': ['mantenimiento', 'reparación', 'falla', 'avería', 'daño'],
-        'Seguridad': ['seguridad', 'vigilancia', 'protección', 'robo'],
+        'Movilidad CDMX': ['movilidad', 'transporte', 'ruta', 'recorrido', 'metro'],
+        'Unidades de RTP': ['unidad', 'autobús', 'flota', 'camión'],
+        'Accidentes': ['accidente', 'choque', 'atropell', 'siniestro'],
+        'Sindicato': ['sindicato', 'trabajador', 'huelga', 'paro'],
+        'Mantenimiento': ['mantenimiento', 'reparación', 'falla', 'avería'],
         'Nuevas rutas': ['nueva ruta', 'nuevo tramo', 'ampliación', 'prueba piloto'],
-        'Horarios': ['horario', 'puente', 'festivo', 'cierre'],
-        'Tarifas': ['tarifa', 'precio', 'costo', 'peso', 'gratuito']
+        'Horarios': ['horario', 'puente', 'festivo', 'cierre']
     }
     tema_detectado = 'General'
     for tema, keywords in temas.items():
         if any(k in text_lower for k in keywords):
             tema_detectado = tema
             break
-    
     fields['tema'] = tema_detectado
     
-    # Detectar tipo de medio
-    if any(x in text_lower for x in ['twitter', 'x.com', 'facebook', 'youtube', 'instagram']):
+    # Tipo de medio
+    if any(x in text_lower for x in ['twitter', 'x.com', 'facebook', 'youtube']):
         fields['tipo_medio'] = 'OTROS (Twitter, Facebook, You Tube, etc.).'
     elif any(x in text_lower for x in ['radio', 'fm']):
         fields['tipo_medio'] = 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * '
-    elif any(x in text_lower for x in ['tv', 'canal', 'televisa', 'foro tv']):
+    elif any(x in text_lower for x in ['tv', 'canal', 'televisa']):
         fields['tipo_medio'] = 'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *'
-    elif any(x in text_lower for x in ['.com', 'portal', 'digital', 'noticias']):
+    elif any(x in text_lower for x in ['.com', 'portal', 'digital']):
         fields['tipo_medio'] = 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *'
     else:
         fields['tipo_medio'] = 'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *'
     
     return fields
 
-def get_detected_value(field_name, detected_fields):
-    """Obtiene el valor detectado para un campo"""
-    mapping = {
-        'Título de la nota': 'titulo',
-        'RESUMEN  DE LA NOTA (RTP)': 'resumen',
-        'Autor': 'autor',
-        'LINK': 'link',
-        'Tema de la nota': 'tema',
-        'Informativo / Positivo/ Negativo': 'tono',
-        'RTP, ¿Es relevante en la nota?': 'relevante'
-    }
-    if field_name in mapping and mapping[field_name] in detected_fields:
-        return detected_fields[mapping[field_name]]
-    return ""
-
-def highlight_text(text, fields):
-    """Resalta el texto con colores según los campos"""
-    if not text or not fields:
+def highlight_selected_text(text, selections):
+    """Resalta el texto seleccionado con colores"""
+    if not text:
         return text
     
     highlighted = text
-    replacements = []
+    # Ordenar por longitud (mayor a menor)
+    sorted_selections = sorted(selections, key=lambda x: len(x['text']), reverse=True)
     
-    # Título
-    if fields.get('titulo') and fields['titulo'] in highlighted:
-        replacements.append((fields['titulo'], f'<span class="highlight-titulo">{fields["titulo"]}</span>'))
-    
-    # Resumen
-    if fields.get('resumen') and fields['resumen'] in highlighted and fields['resumen'] != fields.get('titulo'):
-        replacements.append((fields['resumen'], f'<span class="highlight-resumen">{fields["resumen"]}</span>'))
-    
-    # Medio
-    if fields.get('medio') and fields['medio'] in highlighted:
-        replacements.append((fields['medio'], f'<span class="highlight-medio">{fields["medio"]}</span>'))
-    
-    # Autor
-    if fields.get('autor') and fields['autor'] in highlighted:
-        replacements.append((fields['autor'], f'<span class="highlight-autor">{fields["autor"]}</span>'))
-    
-    # Link
-    if fields.get('link') and fields['link'] in highlighted:
-        replacements.append((fields['link'], f'<span class="highlight-link">{fields["link"]}</span>'))
-    
-    # Ordenar por longitud (de mayor a menor) para evitar problemas
-    replacements.sort(key=lambda x: len(x[0]), reverse=True)
-    
-    for old, new in replacements:
-        highlighted = highlighted.replace(old, new)
+    for sel in sorted_selections:
+        if sel['text'] in highlighted:
+            color_class = sel.get('class', 'hl-resumen')
+            highlighted = highlighted.replace(sel['text'], f'<span class="{color_class}">{sel["text"]}</span>')
     
     return highlighted
 
@@ -388,6 +334,10 @@ if 'indice_nota' not in st.session_state:
     st.session_state.indice_nota = 0
 if 'notas_extraidas' not in st.session_state:
     st.session_state.notas_extraidas = []
+if 'selecciones' not in st.session_state:
+    st.session_state.selecciones = []
+if 'modo_seleccion' not in st.session_state:
+    st.session_state.modo_seleccion = 'Título'
 
 # --- SIDEBAR ---
 st.sidebar.header("📂 Carga de Documentos")
@@ -399,6 +349,7 @@ st.sidebar.metric("Total Notas", len(st.session_state.notas_capturadas))
 if st.sidebar.button("🗑️ Limpiar todas las notas"):
     st.session_state.notas_capturadas = []
     st.session_state.nota_actual = {}
+    st.session_state.selecciones = []
     st.rerun()
 
 # --- PROCESAR ARCHIVO ---
@@ -411,8 +362,6 @@ if uploaded_file:
             sheet = st.sidebar.selectbox("Selecciona pestaña:", xls.sheet_names)
             df_existente = pd.read_excel(uploaded_file, sheet_name=sheet)
             st.sidebar.success(f"✅ Excel cargado: {len(df_existente)} notas")
-            
-            # Cargar notas existentes al session state
             if not df_existente.empty:
                 for _, row in df_existente.iterrows():
                     nota = {col: row[col] for col in OFFICIAL_COLUMNS if col in df_existente.columns}
@@ -426,57 +375,52 @@ if uploaded_file:
         
         if full_text.strip():
             st.sidebar.success(f"✅ PDF procesado: {len(full_text)} caracteres")
-            
-            # Dividir en notas
             st.session_state.notas_extraidas = split_into_notes(full_text)
             st.sidebar.info(f"📊 {len(st.session_state.notas_extraidas)} notas encontradas")
             
             if st.session_state.notas_extraidas and st.session_state.indice_nota < len(st.session_state.notas_extraidas):
                 texto_nota = st.session_state.notas_extraidas[st.session_state.indice_nota]
-                campos_detectados = auto_detect_fields(texto_nota)
-                campos_detectados['texto_original'] = texto_nota
-                st.session_state.nota_actual = campos_detectados
+                campos = auto_detect_fields(texto_nota)
+                campos['texto_original'] = texto_nota
+                st.session_state.nota_actual = campos
+                st.session_state.selecciones = []
 
 # --- INTERFAZ PRINCIPAL ---
 st.subheader("✏️ Captura de Nota")
 
-# Mostrar progreso
+# Progreso
 if st.session_state.notas_extraidas:
     total_notas = len(st.session_state.notas_extraidas)
     actual = st.session_state.indice_nota + 1
     st.progress(actual / total_notas if total_notas > 0 else 0)
     st.caption(f"Nota {actual} de {total_notas}")
 
-# Leyenda de colores
-st.markdown("""
-<div class="leyenda-colores">
-    <div class="leyenda-item"><div class="leyenda-color" style="background:#cce5ff;border-color:#007bff;"></div> Título</div>
-    <div class="leyenda-item"><div class="leyenda-color" style="background:#d4edda;border-color:#28a745;"></div> Resumen</div>
-    <div class="leyenda-item"><div class="leyenda-color" style="background:#fff3cd;border-color:#ffc107;"></div> Medio</div>
-    <div class="leyenda-item"><div class="leyenda-color" style="background:#f8d7da;border-color:#dc3545;"></div> Autor</div>
-    <div class="leyenda-item"><div class="leyenda-color" style="background:#d1ecf1;border-color:#17a2b8;"></div> Link</div>
-    <div class="leyenda-item"><div class="leyenda-color" style="background:#e8d5f5;border-color:#6f42c1;"></div> Tema</div>
-</div>
-""", unsafe_allow_html=True)
-
-# Crear pestañas
-tab_texto, tab_campos, tab_previa = st.tabs(["📄 Texto Original", "📝 Campos de la Nota", "📋 Vista Previa"])
-
-# --- TAB 1: TEXTO ORIGINAL ---
-with tab_texto:
-    if st.session_state.nota_actual.get('texto_original'):
-        st.markdown("### Texto extraído de la nota")
+# --- COLUMNAS: TEXTO Y SELECCIÓN ---
+if st.session_state.nota_actual.get('texto_original'):
+    col_texto, col_seleccion = st.columns([2, 1])
+    
+    with col_texto:
+        st.markdown("### 📄 Texto extraído del PDF")
+        st.markdown("**💡 Instrucción:** Selecciona cualquier parte del texto, elige a qué campo pertenece y presiona 'Aplicar Selección'")
         
-        # Texto con resaltado
-        texto_resaltado = highlight_text(
-            st.session_state.nota_actual['texto_original'],
-            st.session_state.nota_actual
-        )
+        # Leyenda de colores
+        st.markdown("""
+        <div class="leyenda-colores">
+            <div class="leyenda-item"><div class="leyenda-color" style="background:#cce5ff;border-color:#007bff;"></div> Título</div>
+            <div class="leyenda-item"><div class="leyenda-color" style="background:#d4edda;border-color:#28a745;"></div> Resumen</div>
+            <div class="leyenda-item"><div class="leyenda-color" style="background:#fff3cd;border-color:#ffc107;"></div> Medio</div>
+            <div class="leyenda-item"><div class="leyenda-color" style="background:#f8d7da;border-color:#dc3545;"></div> Autor</div>
+            <div class="leyenda-item"><div class="leyenda-color" style="background:#d1ecf1;border-color:#17a2b8;"></div> Link</div>
+            <div class="leyenda-item"><div class="leyenda-color" style="background:#e8d5f5;border-color:#6f42c1;"></div> Tema</div>
+        </div>
+        """, unsafe_allow_html=True)
         
-        st.markdown(
-            f'<div class="texto-extraido">{texto_resaltado}</div>',
-            unsafe_allow_html=True
-        )
+        # Mostrar texto con resaltados
+        texto_mostrar = st.session_state.nota_actual['texto_original']
+        if st.session_state.selecciones:
+            texto_mostrar = highlight_selected_text(texto_mostrar, st.session_state.selecciones)
+        
+        st.markdown(f'<div class="texto-extraido">{texto_mostrar}</div>', unsafe_allow_html=True)
         
         # Botones de navegación
         col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
@@ -487,6 +431,7 @@ with tab_texto:
                 campos = auto_detect_fields(texto)
                 campos['texto_original'] = texto
                 st.session_state.nota_actual = campos
+                st.session_state.selecciones = []
                 st.rerun()
         with col2:
             if st.button("➡️ Siguiente", use_container_width=True) and st.session_state.indice_nota < len(st.session_state.notas_extraidas) - 1:
@@ -495,31 +440,119 @@ with tab_texto:
                 campos = auto_detect_fields(texto)
                 campos['texto_original'] = texto
                 st.session_state.nota_actual = campos
+                st.session_state.selecciones = []
                 st.rerun()
         with col3:
-            if st.button("🔄 Detectar automático", use_container_width=True):
+            if st.button("🔄 Auto-detectar", use_container_width=True):
                 if st.session_state.nota_actual.get('texto_original'):
                     campos = auto_detect_fields(st.session_state.nota_actual['texto_original'])
                     campos['texto_original'] = st.session_state.nota_actual['texto_original']
                     st.session_state.nota_actual = campos
+                    st.session_state.selecciones = []
                     st.rerun()
-    else:
-        st.info("No hay texto cargado. Sube un PDF o selecciona una nota.")
-
-# --- TAB 2: CAMPOS DE LA NOTA ---
-with tab_campos:
-    st.markdown("### Asigna el texto a cada campo")
     
-    # Mostrar campos con colores
-    with st.form(key="form_nota"):
+    with col_seleccion:
+        st.markdown("### ✏️ Asignar texto seleccionado")
+        
+        # Campo de texto para pegar lo seleccionado
+        texto_seleccionado = st.text_area(
+            "📝 Texto seleccionado",
+            value="",
+            height=100,
+            placeholder="Pega aquí el texto que seleccionaste del PDF",
+            key="texto_seleccionado_input"
+        )
+        
+        # Selector de campo
+        campo_destino = st.selectbox(
+            "🎯 Asignar a:",
+            [
+                "Título de la nota",
+                "Resumen de la nota",
+                "Medio de comunicación",
+                "Autor",
+                "Link",
+                "Tema de la nota"
+            ],
+            key="campo_destino"
+        )
+        
+        # Mapa de clases de color
+        color_map = {
+            "Título de la nota": "hl-titulo",
+            "Resumen de la nota": "hl-resumen",
+            "Medio de comunicación": "hl-medio",
+            "Autor": "hl-autor",
+            "Link": "hl-link",
+            "Tema de la nota": "hl-tema"
+        }
+        
+        # Mapa de campos
+        field_map = {
+            "Título de la nota": "titulo",
+            "Resumen de la nota": "resumen",
+            "Medio de comunicación": "medio",
+            "Autor": "autor",
+            "Link": "link",
+            "Tema de la nota": "tema"
+        }
+        
+        if st.button("✅ Aplicar Selección", use_container_width=True):
+            if texto_seleccionado.strip():
+                # Guardar selección
+                st.session_state.selecciones.append({
+                    'text': texto_seleccionado.strip(),
+                    'class': color_map[campo_destino],
+                    'campo': campo_destino
+                })
+                # Actualizar campo en nota_actual
+                campo_key = field_map[campo_destino]
+                st.session_state.nota_actual[campo_key] = texto_seleccionado.strip()
+                st.success(f"✅ Texto asignado a '{campo_destino}'")
+                # Limpiar el campo de texto
+                st.rerun()
+            else:
+                st.warning("⚠️ Por favor, pega un texto para asignar")
+        
+        # Mostrar selecciones actuales
+        if st.session_state.selecciones:
+            st.markdown("### 📋 Selecciones asignadas")
+            for i, sel in enumerate(st.session_state.selecciones):
+                st.markdown(
+                    f'<div style="background:#f8f9fa;padding:8px;margin:4px 0;border-radius:4px;border-left:4px solid {{
+                        "hl-titulo":"#007bff",
+                        "hl-resumen":"#28a745",
+                        "hl-medio":"#ffc107",
+                        "hl-autor":"#dc3545",
+                        "hl-link":"#17a2b8",
+                        "hl-tema":"#6f42c1"
+                    }}[sel["class"]];">'
+                    f'<strong>{sel["campo"]}:</strong> {sel["text"][:50]}{"..." if len(sel["text"])>50 else ""}'
+                    f' <button onclick="alert(\'Eliminar selección\')" style="background:#dc3545;color:white;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;">✕</button>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                
+            if st.button("🗑️ Limpiar selecciones", use_container_width=True):
+                st.session_state.selecciones = []
+                st.rerun()
+
+# --- TAB: CAMPOS DE LA NOTA (vista consolidada) ---
+st.markdown("---")
+st.subheader("📋 Campos de la nota (completos)")
+
+with st.form(key="form_nota_completa"):
+    # Mostrar todos los campos con sus valores
+    col_a, col_b = st.columns(2)
+    
+    with col_a:
         # Título - AZUL
-        st.markdown('<div class="campo-titulo">📌 TÍTULO DE LA NOTA <span>(Campo obligatorio)</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="campo-titulo">📌 TÍTULO DE LA NOTA *</div>', unsafe_allow_html=True)
         titulo = st.text_area(
             "",
-            value=get_detected_value('Título de la nota', st.session_state.nota_actual),
+            value=st.session_state.nota_actual.get('titulo', ''),
             height=60,
-            key="campo_titulo",
-            placeholder="Pega el título aquí o usa la detección automática",
+            key="form_titulo",
             label_visibility="collapsed"
         )
         
@@ -527,42 +560,38 @@ with tab_campos:
         st.markdown('<div class="campo-tema">📂 TEMA DE LA NOTA</div>', unsafe_allow_html=True)
         tema = st.text_input(
             "",
-            value=get_detected_value('Tema de la nota', st.session_state.nota_actual),
-            key="campo_tema",
-            placeholder="Ej: Movilidad CDMX, Accidentes, Nuevas rutas...",
+            value=st.session_state.nota_actual.get('tema', ''),
+            key="form_tema",
             label_visibility="collapsed"
         )
         
-        # Dos columnas para tono y relevancia
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown('<div class="campo-medio">🎯 TONO DE LA NOTA</div>', unsafe_allow_html=True)
-            tono = st.selectbox(
-                "",
-                ["Informativo", "Positivo", "Negativo"],
-                index=["Informativo", "Positivo", "Negativo"].index(
-                    get_detected_value('Informativo / Positivo/ Negativo', st.session_state.nota_actual) or "Informativo"
-                ),
-                key="campo_tono",
-                label_visibility="collapsed"
-            )
-        with col2:
-            st.markdown('<div class="campo-medio">🎯 ¿ES RELEVANTE PARA RTP?</div>', unsafe_allow_html=True)
-            relevancia = st.selectbox(
-                "",
-                ["Sí", "No"],
-                index=0 if get_detected_value('RTP, ¿Es relevante en la nota?', st.session_state.nota_actual) == "Sí" else 1,
-                key="campo_relevancia",
-                label_visibility="collapsed"
-            )
+        # Tono
+        st.markdown('<div class="campo-medio">🎯 TONO</div>', unsafe_allow_html=True)
+        tono = st.selectbox(
+            "",
+            ["Informativo", "Positivo", "Negativo"],
+            index=["Informativo", "Positivo", "Negativo"].index(st.session_state.nota_actual.get('tono', 'Informativo')),
+            key="form_tono",
+            label_visibility="collapsed"
+        )
         
+        # Relevancia
+        st.markdown('<div class="campo-medio">🎯 RELEVANTE PARA RTP</div>', unsafe_allow_html=True)
+        relevancia = st.selectbox(
+            "",
+            ["Sí", "No"],
+            index=0 if st.session_state.nota_actual.get('relevante', 'Sí') == "Sí" else 1,
+            key="form_relevancia",
+            label_visibility="collapsed"
+        )
+    
+    with col_b:
         # Medio - AMARILLO
-        st.markdown('<div class="campo-medio">📰 MEDIO DE COMUNICACIÓN</div>', unsafe_allow_html=True)
+        st.markdown('<div class="campo-medio">📰 MEDIO</div>', unsafe_allow_html=True)
         medio = st.text_input(
             "",
-            value=get_detected_value('Medio', st.session_state.nota_actual),
-            key="campo_medio",
-            placeholder="Ej: El Universal, Reforma, Milenio...",
+            value=st.session_state.nota_actual.get('medio', ''),
+            key="form_medio",
             label_visibility="collapsed"
         )
         
@@ -577,60 +606,44 @@ with tab_campos:
                 "OTROS (Twitter, Facebook, You Tube, etc.)."
             ],
             index=0,
-            key="campo_tipo_medio"
+            key="form_tipo_medio"
         )
         
         # Autor - ROJO
         st.markdown('<div class="campo-autor">✍️ AUTOR</div>', unsafe_allow_html=True)
         autor = st.text_input(
             "",
-            value=get_detected_value('Autor', st.session_state.nota_actual),
-            key="campo_autor",
-            placeholder="Nombre del autor o Redacción",
+            value=st.session_state.nota_actual.get('autor', ''),
+            key="form_autor",
             label_visibility="collapsed"
         )
         
-        # Link - CELESTE (con link clickeable)
+        # Link - CELESTE
         st.markdown('<div class="campo-link">🔗 LINK</div>', unsafe_allow_html=True)
         link = st.text_input(
             "",
-            value=get_detected_value('LINK', st.session_state.nota_actual),
-            key="campo_link",
-            placeholder="https://...",
+            value=st.session_state.nota_actual.get('link', ''),
+            key="form_link",
             label_visibility="collapsed"
         )
         if link and link.startswith('http'):
-            st.markdown(f'✅ <a href="{link}" target="_blank">Abrir link en nueva pestaña</a>', unsafe_allow_html=True)
-        
-        # Resumen - VERDE
-        st.markdown('<div class="campo-resumen">📝 RESUMEN DE LA NOTA (RTP)</div>', unsafe_allow_html=True)
-        resumen = st.text_area(
-            "",
-            value=get_detected_value('RESUMEN  DE LA NOTA (RTP)', st.session_state.nota_actual),
-            height=150,
-            key="campo_resumen",
-            placeholder="Pega el resumen de la nota aquí",
-            label_visibility="collapsed"
-        )
-        
-        # Botones de acción
-        col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
-        
-        with col_btn1:
-            submitted = st.form_submit_button("💾 Guardar Nota", use_container_width=True)
-        
-        with col_btn2:
-            if st.form_submit_button("⏭️ Guardar y Siguiente", use_container_width=True):
-                submitted = True
-                avanzar = True
-        
-        with col_btn3:
-            if st.form_submit_button("❌ Descartar", use_container_width=True):
-                st.session_state.nota_actual = {}
-                st.rerun()
-        
-        # Procesar guardado
-        if submitted:
+            st.markdown(f'🔗 <a href="{link}" target="_blank">Abrir link</a>', unsafe_allow_html=True)
+    
+    # Resumen - VERDE (ancho completo)
+    st.markdown('<div class="campo-resumen">📝 RESUMEN DE LA NOTA (RTP)</div>', unsafe_allow_html=True)
+    resumen = st.text_area(
+        "",
+        value=st.session_state.nota_actual.get('resumen', ''),
+        height=120,
+        key="form_resumen",
+        label_visibility="collapsed"
+    )
+    
+    # Botones
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+    
+    with col_btn1:
+        if st.form_submit_button("💾 Guardar Nota", use_container_width=True):
             if titulo.strip():
                 today = datetime.now()
                 nota_completa = {
@@ -653,85 +666,81 @@ with tab_campos:
                     'PUBLICACIÓN BOLETÍN': 'NO',
                     'RESUMEN  DE LA NOTA (RTP)': resumen.strip()
                 }
-                
                 st.session_state.notas_capturadas.append(nota_completa)
-                st.success(f"✅ Nota {len(st.session_state.notas_capturadas)} guardada correctamente")
-                
+                st.success(f"✅ Nota {len(st.session_state.notas_capturadas)} guardada")
                 if st.session_state.indice_nota < len(st.session_state.notas_extraidas) - 1:
                     st.session_state.indice_nota += 1
                     texto = st.session_state.notas_extraidas[st.session_state.indice_nota]
                     campos = auto_detect_fields(texto)
                     campos['texto_original'] = texto
                     st.session_state.nota_actual = campos
-                else:
-                    st.session_state.nota_actual = {}
-                    st.info("🎉 ¡Todas las notas han sido procesadas!")
-                
+                    st.session_state.selecciones = []
                 st.rerun()
             else:
-                st.error("⚠️ El título es obligatorio para guardar la nota")
-
-# --- TAB 3: VISTA PREVIA Y EXPORTACIÓN ---
-with tab_previa:
-    if st.session_state.notas_capturadas:
-        st.markdown("### 📋 Notas capturadas")
-        df_preview = pd.DataFrame(st.session_state.notas_capturadas)
-        st.dataframe(df_preview[OFFICIAL_COLUMNS], use_container_width=True, height=400)
-        
-        st.markdown("---")
-        st.markdown("### 📥 Exportar datos")
-        
-        # Botón de descarga GRANDE
-        col_export1, col_export2, col_export3 = st.columns([1, 2, 1])
-        
-        with col_export2:
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                df_preview[OFFICIAL_COLUMNS].to_excel(writer, sheet_name="Seguimiento_Medios", index=False)
-            
-            st.download_button(
-                label="📥 DESCARGAR EXCEL",
-                data=output.getvalue(),
-                file_name=f"Seguimiento_RTP_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                key="btn_descarga_grande"
-            )
-            
-            st.caption(f"📊 {len(st.session_state.notas_capturadas)} notas listas para exportar")
-        
-        if st.button("🗑️ Limpiar todas las notas", use_container_width=True):
-            st.session_state.notas_capturadas = []
+                st.error("⚠️ El título es obligatorio")
+    
+    with col_btn2:
+        if st.form_submit_button("🗑️ Limpiar campos", use_container_width=True):
+            st.session_state.nota_actual = {}
+            st.session_state.selecciones = []
             st.rerun()
-    else:
-        st.info("No hay notas capturadas aún. Usa la pestaña 'Campos de la Nota' para capturar.")
+
+# --- TAB: VISTA PREVIA Y EXPORTACIÓN ---
+st.markdown("---")
+st.subheader("📊 Vista Previa y Exportación")
+
+if st.session_state.notas_capturadas:
+    df_preview = pd.DataFrame(st.session_state.notas_capturadas)
+    st.dataframe(df_preview[OFFICIAL_COLUMNS], use_container_width=True, height=300)
+    
+    # Botón de descarga GRANDE
+    st.markdown("### 📥 Exportar a Excel")
+    
+    col_exp1, col_exp2, col_exp3 = st.columns([1, 2, 1])
+    with col_exp2:
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df_preview[OFFICIAL_COLUMNS].to_excel(writer, sheet_name="Seguimiento_Medios", index=False)
+        
+        st.download_button(
+            label="📥 DESCARGAR EXCEL",
+            data=output.getvalue(),
+            file_name=f"Seguimiento_RTP_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="btn_descarga_grande"
+        )
+        st.caption(f"📊 {len(st.session_state.notas_capturadas)} notas listas para exportar")
+else:
+    st.info("No hay notas capturadas. Usa las herramientas de selección y guarda tus notas.")
 
 # --- INSTRUCCIONES ---
 with st.expander("📖 ¿Cómo usar esta herramienta?"):
     st.markdown("""
     ### 📊 Sistema de Captura de Notas RTP
     
-    **1. Carga un archivo:**
-    - **PDF**: Sube una síntesis informativa para extraer notas automáticamente
-    - **Excel**: Carga un archivo existente para continuar trabajando
+    **1. Carga un archivo PDF** en la barra lateral
     
-    **2. Navega entre notas:**
-    - Usa los botones **Anterior/Siguiente** para moverte entre notas
-    - La detección automática intenta llenar los campos por ti
+    **2. Selecciona texto del PDF:**
+    - En el panel izquierdo, copia cualquier parte del texto
+    - Pégala en el campo "Texto seleccionado"
+    - Elige a qué campo pertenece (Título, Resumen, Medio, etc.)
+    - Presiona "Aplicar Selección"
     
-    **3. Colores de los campos:**
-    - 🔵 **Título** (Azul) - Campo obligatorio
-    - 🟢 **Resumen** (Verde) - Contenido de la nota
-    - 🟡 **Medio** (Amarillo) - Medio de comunicación
-    - 🔴 **Autor** (Rojo) - Quién escribió la nota
-    - 🔷 **Link** (Celeste) - URL clickeable
-    - 🟣 **Tema** (Morado) - Clasificación de la nota
+    **3. Colores por campo:**
+    - 🔵 **Título** (Azul)
+    - 🟢 **Resumen** (Verde)
+    - 🟡 **Medio** (Amarillo)
+    - 🔴 **Autor** (Rojo)
+    - 🔷 **Link** (Celeste)
+    - 🟣 **Tema** (Morado)
     
-    **4. Guarda la nota:**
-    - **Guardar Nota**: Guarda la nota actual
-    - **Guardar y Siguiente**: Guarda y pasa a la siguiente nota
+    **4. Guarda y navega:**
+    - Completa todos los campos en la sección inferior
+    - Presiona "Guardar Nota" para guardar y pasar a la siguiente
+    - Usa Anterior/Siguiente para navegar
     
     **5. Exporta:**
-    - Botón **grande** de descarga de Excel
-    - El archivo mantiene la estructura exacta de la plantilla RTP
+    - Botón grande de "DESCARGAR EXCEL"
+    - Estructura exacta de la plantilla RTP
     """)
