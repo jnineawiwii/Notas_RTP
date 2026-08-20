@@ -5,180 +5,268 @@ import pandas as pd
 import plotly.express as px
 import pdfplumber
 
-# Configuración inicial de la página
+# Configuración de página
 st.set_page_config(
-    page_title="Sistema de Análisis de Sintesis y Medios RTP",
+    page_title="Sistema de Monitoreo y Seguimiento en Medios RTP",
     page_icon="🚌",
     layout="wide"
 )
 
-st.title("🚌 Análisis Automático de Síntesis Informativas y Medios")
-st.write(
-    "Sube tus archivos (PDF de síntesis, planillas de seguimiento, CSV o Excel). "
-    "El sistema procesará la información, generará reportes en pantalla y permitirá exportar los datos a Excel."
-)
+# Estilo visual personalizado
+st.markdown("""
+<style>
+    .metric-box {
+        background-color: #f0f2f6;
+        padding: 15px;
+        border-radius: 10px;
+        text-align: center;
+        border-left: 5px solid #0066cc;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# Sidebar para carga de archivos
-st.sidebar.header("📁 Carga de Documentos")
-uploaded_file = st.sidebar.file_uploader(
-    "Selecciona un archivo PDF, XLSX o CSV", 
-    type=["pdf", "xlsx", "csv"]
-)
+st.title("🚌 Monitoreo y Seguimiento en Medios - RTP")
+st.caption("Sistema automatizado de análisis de notas informativas y reportes de medios.")
 
-def extract_data_from_pdf(pdf_file):
-    """
-    Extrae texto y URLs de archivos PDF tipo síntesis informativa o boletines.
-    """
+# Columnas oficiales según la plantilla SM_RTP_26_Ok.xlsx
+OFFICIAL_COLUMNS = [
+    'Año',
+    '# Mes',
+    'Mes',
+    'Fecha ',
+    'Título de la nota',
+    'RTP, ¿Es relevante en la nota?',
+    'Tema de la nota',
+    'Campaña',
+    'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ',
+    'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *',
+    'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *',
+    'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *',
+    'OTROS (Twitter, Facebook, You Tube, etc.).',
+    'Informativo / Positivo/ Negativo',
+    'LINK',
+    'Autor',
+    'PUBLICACIÓN BOLETÍN',
+    'RESUMEN  DE LA NOTA (RTP)'
+]
+
+def clean_sentiment(val):
+    """ Normaliza el sentido de la nota: Positivo, Negativo o Informativo """
+    if pd.isna(val):
+        return "Informativo"
+    val = str(val).strip().capitalize()
+    if "Posit" in val:
+        return "Positivo"
+    if "Negat" in val:
+        return "Negativo"
+    if "Inform" in val or "Info" in val:
+        return "Informativo"
+    return "Informativo"
+
+def extract_pdf_to_official_df(pdf_file):
+    """ Parsea el PDF de síntesis informativa al formato de 18 columnas """
     records = []
+    
     with pdfplumber.open(pdf_file) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
+        for i, page in enumerate(pdf.pages):
             text = page.extract_text() or ""
+            if not text.strip():
+                continue
             
-            # Búsqueda de URLs dentro de la página
+            # Buscar links en la página
             urls = re.findall(r'https?://[^\s]+', text)
+            link = urls[0] if urls else ""
+
+            # Extraer título y medio
+            lines = [l.strip() for l in text.split('\n') if l.strip()]
+            titulo = lines[0] if lines else f"Nota {i+1}"
             
-            # Detección de clasificación de la nota
-            sentiment = "Informativa"
-            if "Positivas" in text or "Positiva" in text:
-                sentiment = "Positiva"
-            elif "Negativas" in text or "Negativa" in text:
-                sentiment = "Negativa"
+            # Tono de la nota
+            tono = "Informativo"
+            if "positiv" in text.lower():
+                tono = "Positivo"
+            elif "negativ" in text.lower():
+                tono = "Negativo"
 
-            # Extracción del medio
-            medio_match = re.search(r'MEDIOS?:?\s*([^\n]+)', text, re.IGNORECASE)
-            medio = medio_match.group(1).strip() if medio_match else "No especificado"
+            record = {
+                'Año': pd.Timestamp.now().year,
+                '# Mes': pd.Timestamp.now().month,
+                'Mes': pd.Timestamp.now().strftime("%B").capitalize(),
+                'Fecha ': pd.Timestamp.now().strftime("%Y-%m-%d"),
+                'Título de la nota': titulo[:150],
+                'RTP, ¿Es relevante en la nota?': 'Si' if 'RTP' in text.upper() else 'NO',
+                'Tema de la nota': 'Síntesis Informativa Diario',
+                'Campaña': 'Monitoreo General',
+                'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ': None,
+                'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *': None,
+                'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *': 'Portal Web',
+                'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *': None,
+                'OTROS (Twitter, Facebook, You Tube, etc.).': None,
+                'Informativo / Positivo/ Negativo': tono,
+                'LINK': link,
+                'Autor': 'Síntesis RTP',
+                'PUBLICACIÓN BOLETÍN': 'NO',
+                'RESUMEN  DE LA NOTA (RTP)': text[:300].replace('\n', ' ') + "..."
+            }
+            records.append(record)
 
-            # Agregado de registros detectados
-            if text.strip():
-                lines = [line.strip() for line in text.split('\n') if line.strip()]
-                titulo = lines[0] if lines else f"Página {page_num}"
-                
-                records.append({
-                    "Página": page_num,
-                    "Título / Encabezado": titulo[:100],
-                    "Medio": medio,
-                    "Clasificación": sentiment,
-                    "URLs Detectadas": ", ".join(urls) if urls else "Ninguna",
-                    "Extracto Texto": text[:200].replace("\n", " ") + "..."
-                })
-    return pd.DataFrame(records)
+    return pd.DataFrame(records, columns=OFFICIAL_COLUMNS)
+
+# Sidebar para carga
+st.sidebar.header("📂 Carga de Archivo")
+uploaded_file = st.sidebar.file_uploader(
+    "Sube tu reporte (.xlsx) o síntesis (.pdf)", 
+    type=["xlsx", "pdf"]
+)
 
 if uploaded_file is not None:
-    file_type = uploaded_file.name.split(".")[-1].lower()
+    file_ext = uploaded_file.name.split(".")[-1].lower()
     df = pd.DataFrame()
 
     try:
-        # Procesar según el tipo de archivo subido
-        if file_type == "pdf":
-            st.info("📄 Procesando archivo PDF... Extrayendo texto, enlaces y estructura de notas.")
-            df = extract_data_from_pdf(uploaded_file)
-        elif file_type == "csv":
-            df = pd.read_csv(uploaded_file)
-        elif file_type == "xlsx":
-            df = pd.read_excel(uploaded_file)
+        if file_ext == "xlsx":
+            xls = pd.ExcelFile(uploaded_file)
+            sheet_name = st.sidebar.selectbox("Selecciona la pestaña:", xls.sheet_names)
+            df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+        elif file_ext == "pdf":
+            st.info("📄 Extrayendo datos del PDF de síntesis informativa...")
+            df = extract_pdf_to_official_df(uploaded_file)
 
-        if not df.empty:
-            st.success(f"✅ Archivo procesado correctamente: **{uploaded_file.name}** ({len(df)} registros encontrados)")
-            
-            # Tabs principales de la interfaz
-            tab1, tab2, tab3, tab4 = st.tabs([
-                "📋 Vista General de Tablas", 
-                "📊 Gráficos e Indicadores", 
-                "⚙️ Tabla Dinámica", 
-                "📥 Exportar a Excel"
-            ])
+        # Asegurar columnas estándar
+        for col in OFFICIAL_COLUMNS:
+            if col not in df.columns:
+                df[col] = None
 
-            # --- TAB 1: TABLA DE DATOS ---
-            with tab1:
-                st.subheader("Registros Extraídos y Estructurados")
-                st.dataframe(df, use_container_width=True)
+        # Limpieza de clasificación
+        df['Informativo / Positivo/ Negativo'] = df['Informativo / Positivo/ Negativo'].apply(clean_sentiment)
 
-            # --- TAB 2: GRÁFICOS ---
-            with tab2:
-                st.subheader("Análisis Visual de los Datos")
-                col_chart1, col_chart2 = st.columns(2)
+        # FILTROS LATERALES
+        st.sidebar.markdown("---")
+        st.sidebar.header("🔍 Filtros de Búsqueda")
+        
+        # Filtro de Mes
+        meses_disp = [m for m in df['Mes'].dropna().unique()]
+        if meses_disp:
+            selected_mes = st.sidebar.multiselect("Filtrar por Mes:", opciones:=meses_disp, default=meses_disp)
+            df = df[df['Mes'].isin(selected_mes)]
 
-                # Detección de columnas útiles para graficar
-                cat_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
-                num_cols = df.select_dtypes(include=['number']).columns.tolist()
+        # Filtro de Clasificación
+        tonos_disp = df['Informativo / Positivo/ Negativo'].unique().tolist()
+        selected_tono = st.sidebar.multiselect("Filtrar por Sentido de la Nota:", tonos_disp, default=tonos_disp)
+        df = df[df['Informativo / Positivo/ Negativo'].isin(selected_tono)]
 
-                with col_chart1:
-                    if cat_cols:
-                        selected_cat = st.selectbox("Selecciona Categoría para Distribución:", cat_cols, index=0)
-                        df_counts = df[selected_cat].value_counts().reset_index()
-                        df_counts.columns = [selected_cat, 'Cantidad']
-                        
-                        fig_pie = px.pie(
-                            df_counts, 
-                            names=selected_cat, 
-                            values='Cantidad', 
-                            title=f"Distribución por {selected_cat}",
-                            hole=0.4
-                        )
-                        st.plotly_chart(fig_pie, use_container_width=True)
+        # --- PANEL PRINCIPAL ---
+        st.subheader("📌 Resumen General")
+        
+        # Métricas principales
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total de Notas", len(df))
+        m2.metric("Notas Positivas", len(df[df['Informativo / Positivo/ Negativo'] == 'Positivo']))
+        m3.metric("Notas Negativas", len(df[df['Informativo / Positivo/ Negativo'] == 'Negativo']))
+        m4.metric("Notas Informativas", len(df[df['Informativo / Positivo/ Negativo'] == 'Informativo']))
 
-                with col_chart2:
-                    if cat_cols:
-                        fig_bar = px.bar(
-                            df_counts, 
-                            x=selected_cat, 
-                            y='Cantidad', 
-                            color=selected_cat,
-                            title=f"Frecuencia por {selected_cat}"
-                        )
-                        st.plotly_chart(fig_bar, use_container_width=True)
+        # TABS DE NAVEGACIÓN
+        tab_tabla, tab_graficos, tab_medios, tab_export = st.tabs([
+            "📋 Tabla de Registro", 
+            "📊 Dashboard de Análisis", 
+            "📻 Análisis por Canal/Medio",
+            "📥 Descargar Excel"
+        ])
 
-            # --- TAB 3: TABLA DINÁMICA ---
-            with tab3:
-                st.subheader("Configurador estilo Excel")
-                cols = df.columns.tolist()
-                
-                c1, c2, c3, c4 = st.columns(4)
-                with c1:
-                    row_sel = st.selectbox("Filas (Index):", options=cols, index=0)
-                with c2:
-                    col_sel = st.selectbox("Columnas (Opcional):", options=["Ninguna"] + cols, index=0)
-                with c3:
-                    val_sel = st.selectbox("Valores:", options=cols, index=min(1, len(cols)-1))
-                with c4:
-                    agg_func = st.selectbox("Agregación:", options=["count", "sum", "mean", "min", "max"], index=0)
+        # TAB 1: TABLA EXACTA COMO EL EXCEL
+        with tab_tabla:
+            st.subheader("Registro de Notas (Estructura Oficial)")
+            st.dataframe(df[OFFICIAL_COLUMNS], use_container_width=True)
 
-                if col_sel == "Ninguna":
-                    pivot = df.groupby(row_sel)[val_sel].agg(agg_func).reset_index()
-                else:
-                    pivot = pd.pivot_table(
-                        df, 
-                        values=val_sel, 
-                        index=row_sel, 
-                        columns=col_sel, 
-                        aggfunc=agg_func, 
-                        fill_value=0
-                    ).reset_index()
+        # TAB 2: ANÁLISIS GRÁFICO
+        with tab_graficos:
+            st.subheader("Distribución de Notas y Tendencias")
+            col_g1, col_g2 = st.columns(2)
 
-                st.write("### Resultado de la Tabla Dinámica:")
-                st.dataframe(pivot, use_container_width=True)
-
-            # --- TAB 4: EXPORTACIÓN ---
-            with tab4:
-                st.subheader("Generar Reporte Procesado")
-                
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    df.to_excel(writer, sheet_name="Datos_Procesados", index=False)
-                    if 'pivot' in locals():
-                        pivot.to_excel(writer, sheet_name="Tabla_Dinamica", index=False)
-                
-                excel_data = output.getvalue()
-
-                st.download_button(
-                    label="📥 Descargar Reporte Completo en Excel (.xlsx)",
-                    data=excel_data,
-                    file_name=f"Reporte_Procesado_{uploaded_file.name.split('.')[0]}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            with col_g1:
+                # Gráfico Donut Tono
+                tono_counts = df['Informativo / Positivo/ Negativo'].value_counts().reset_index()
+                tono_counts.columns = ['Sentido', 'Cantidad']
+                fig_pie = px.pie(
+                    tono_counts, 
+                    names='Sentido', 
+                    values='Cantidad', 
+                    title="Balance de Postura (Positivo / Negativo / Informativo)",
+                    color='Sentido',
+                    color_discrete_map={'Positivo': '#2ecc71', 'Negativo': '#e74c3c', 'Informativo': '#3498db'},
+                    hole=0.4
                 )
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+            with col_g2:
+                # Gráfico por Temas Principales
+                top_temas = df['Tema de la nota'].value_counts().head(10).reset_index()
+                top_temas.columns = ['Tema', 'Cantidad']
+                fig_bar_tema = px.bar(
+                    top_temas, 
+                    x='Cantidad', 
+                    y='Tema', 
+                    orientation='h',
+                    title="Top 10 Temas Más Mencionados",
+                    color='Cantidad',
+                    color_continuous_scale='Blues'
+                )
+                fig_bar_tema.update_layout(yaxis={'categoryorder':'total ascending'})
+                st.plotly_chart(fig_bar_tema, use_container_width=True)
+
+        # TAB 3: MEDIOS
+        with tab_medios:
+            st.subheader("Desglose por Tipo de Medio")
+            
+            medios_cat = {
+                'Radio': 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ',
+                'Televisión': 'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *',
+                'Digitales / Internet': 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *',
+                'Impresos': 'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *',
+                'Redes Sociales': 'OTROS (Twitter, Facebook, You Tube, etc.).'
+            }
+
+            conteo_medios = []
+            for nombre, col in medios_cat.items():
+                cant = df[col].dropna().count()
+                conteo_medios.append({'Tipo de Medio': nombre, 'Total Notas': cant})
+
+            df_medios_summary = pd.DataFrame(conteo_medios)
+            
+            col_m1, col_m2 = st.columns([1, 2])
+            with col_m1:
+                st.dataframe(df_medios_summary, use_container_width=True)
+            
+            with col_m2:
+                fig_medios = px.bar(
+                    df_medios_summary, 
+                    x='Tipo de Medio', 
+                    y='Total Notas',
+                    title="Presencia por Tipo de Medio",
+                    color='Tipo de Medio'
+                )
+                st.plotly_chart(fig_medios, use_container_width=True)
+
+        # TAB 4: EXPORTAR A EXCEL
+        with tab_export:
+            st.subheader("Descargar Reporte Actualizado")
+            st.write("Genera un archivo Excel con el formato exacto de 18 columnas y los filtros aplicados.")
+            
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                df[OFFICIAL_COLUMNS].to_excel(writer, sheet_name="Seguimiento_RTP", index=False)
+            
+            excel_bytes = output.getvalue()
+
+            st.download_button(
+                label="📥 Descargar Excel (.xlsx)",
+                data=excel_bytes,
+                file_name="Seguimiento_en_Medios_RTP_Procesado.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
     except Exception as e:
-        st.error(f"Error procesando el documento: {str(e)}")
+        st.error(f"Error procesando el archivo: {str(e)}")
 
 else:
-    st.info("👆 Por favor sube tu archivo en la barra lateral para comenzar la extracción y análisis.")
+    st.info("👆 Por favor sube tu archivo `SM_RTP_26_Ok.xlsx` o tu síntesis en PDF para iniciar el análisis.")
