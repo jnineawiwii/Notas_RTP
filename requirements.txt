@@ -3,3 +3,5 @@ pandas
 openpyxl
 plotly
 pdfplumber
+google-genai
+google-generativeai
