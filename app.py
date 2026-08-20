@@ -18,49 +18,25 @@ st.set_page_config(
 # Estilos visuales mejorados
 st.markdown("""
 <style>
-    .pdf-container {
-        width: 100%;
-        height: 650px;
-        border: 2px solid #dee2e6;
-        border-radius: 8px;
-        overflow: hidden;
-        background: #f8f9fa;
-        position: relative;
-    }
-    .pdf-container iframe {
-        width: 100%;
-        height: 100%;
-        border: none;
+    .pdf-text-container {
         background: white;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #dee2e6;
+        max-height: 600px;
+        overflow-y: auto;
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+        line-height: 1.6;
+        color: #000000;
+        white-space: pre-wrap;
     }
-    
+    .pdf-text-container p {
+        color: #000000 !important;
+    }
     .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     .stTabs [data-baseweb="tab"] { border-radius: 8px 8px 0px 0px; padding: 12px 20px; background-color: #f0f2f6; font-weight: bold; }
     .stTabs [data-baseweb="tab"][aria-selected="true"] { background-color: #007bff; color: white; }
-    
-    /* Estilo para el visor PDF */
-    .pdf-viewer-wrapper {
-        width: 100%;
-        height: 700px;
-        background: #f8f9fa;
-        border-radius: 8px;
-        overflow: hidden;
-        border: 1px solid #dee2e6;
-    }
-    .pdf-viewer-wrapper iframe {
-        width: 100%;
-        height: 100%;
-        border: none;
-    }
-    .pdf-header {
-        background: white;
-        padding: 15px 20px;
-        border-radius: 8px 8px 0 0;
-        border-bottom: 1px solid #e9ecef;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -91,26 +67,23 @@ def map_campana(sentiment):
         return "RTP avanza"
     return "RTP informa"
 
-def get_pdf_base64(pdf_bytes):
-    """Convierte PDF a base64 para incrustar en HTML"""
-    return base64.b64encode(pdf_bytes).decode('utf-8')
+def extract_text_from_pdf(pdf_bytes):
+    """Extrae texto de un PDF usando pdfplumber"""
+    text = ""
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n\n"
+        return text
+    except Exception as e:
+        return f"Error al extraer texto: {str(e)}"
 
-def get_pdf_viewer_html(pdf_base64, filename):
-    """Genera HTML para visualizar PDF"""
-    return f"""
-    <div class="pdf-viewer-wrapper">
-        <iframe 
-            src="data:application/pdf;base64,{pdf_base64}#toolbar=1&navpanes=1&scrollbar=1&view=FitH"
-            title="Visor PDF"
-            style="width:100%; height:100%; border:none; background:white;"
-        >
-            <p>Tu navegador no soporta la visualización de PDFs.</p>
-            <a href="data:application/pdf;base64,{pdf_base64}" download="{filename}">
-                Descargar PDF
-            </a>
-        </iframe>
-    </div>
-    """
+def get_pdf_download_link(pdf_bytes, filename):
+    """Genera un enlace de descarga para el PDF"""
+    b64 = base64.b64encode(pdf_bytes).decode()
+    return f'<a href="data:application/pdf;base64,{b64}" download="{filename}" style="display: inline-block; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">📄 Descargar PDF</a>'
 
 # --- INICIALIZAR SESSION STATE ---
 if 'notas_capturadas' not in st.session_state:
@@ -127,6 +100,8 @@ if 'pdf_bytes' not in st.session_state:
     st.session_state.pdf_bytes = None
 if 'pdf_filename' not in st.session_state:
     st.session_state.pdf_filename = None
+if 'pdf_text' not in st.session_state:
+    st.session_state.pdf_text = ""
 
 # --- SIDEBAR ---
 st.sidebar.header("📂 Carga de Documentos")
@@ -159,14 +134,14 @@ if uploaded_file:
             st.sidebar.error(f"❌ Error: {e}")
     
     elif ext == "pdf":
-        # Guardar el PDF en session state
         pdf_bytes = uploaded_file.getvalue()
         st.session_state.pdf_bytes = pdf_bytes
         st.session_state.pdf_filename = uploaded_file.name
+        # Extraer texto del PDF
+        st.session_state.pdf_text = extract_text_from_pdf(pdf_bytes)
         st.sidebar.success(f"✅ PDF cargado: {uploaded_file.name}")
 
 # --- INTERFAZ PRINCIPAL ---
-# TABS principales
 tab1, tab2, tab3, tab4 = st.tabs(["📄 Visualizar PDF y Capturar", "📋 Tabla de Notas", "📊 Gráficas", "📥 Exportar"])
 
 # --- TAB 1: VISUALIZAR PDF Y CAPTURAR ---
@@ -174,36 +149,43 @@ with tab1:
     if st.session_state.pdf_bytes:
         
         st.markdown("### 📄 PDF Original")
-        st.markdown("**💡 Instrucción:** Selecciona y copia texto del PDF, pégalo en el campo de abajo, luego presiona el botón del campo correspondiente")
         
-        # Convertir PDF a base64 para incrustar
-        pdf_base64 = get_pdf_base64(st.session_state.pdf_bytes)
+        # Opciones de visualización
+        view_option = st.radio(
+            "Selecciona cómo ver el PDF:",
+            ["📝 Ver texto extraído", "📄 Descargar y abrir PDF"],
+            horizontal=True
+        )
         
-        # Mostrar PDF
-        st.markdown('<div class="pdf-header"><span>📄 {}</span></div>'.format(st.session_state.pdf_filename), unsafe_allow_html=True)
-        pdf_html = get_pdf_viewer_html(pdf_base64, st.session_state.pdf_filename)
-        st.markdown(pdf_html, unsafe_allow_html=True)
+        if view_option == "📝 Ver texto extraído":
+            st.markdown("**💡 Instrucción:** Selecciona y copia el texto del PDF desde abajo, pégalo en el campo correspondiente")
+            
+            # Mostrar el texto extraído del PDF
+            if st.session_state.pdf_text:
+                st.markdown("#### 📄 Contenido del PDF (texto extraído)")
+                st.markdown(
+                    f'<div class="pdf-text-container">{st.session_state.pdf_text}</div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.warning("No se pudo extraer texto del PDF. Intenta con el visor nativo.")
+                # Opción de descarga
+                st.markdown(get_pdf_download_link(st.session_state.pdf_bytes, st.session_state.pdf_filename), unsafe_allow_html=True)
         
-        # Botón para descargar el PDF
-        col_pdf1, col_pdf2, col_pdf3 = st.columns([1, 1, 1])
-        with col_pdf2:
-            st.download_button(
-                label="📄 Descargar PDF original",
-                data=st.session_state.pdf_bytes,
-                file_name=st.session_state.pdf_filename,
-                mime="application/pdf",
-                use_container_width=True
-            )
+        else:
+            st.markdown("**💡 Haz clic en el botón para descargar y abrir el PDF en tu visor predeterminado**")
+            st.markdown(get_pdf_download_link(st.session_state.pdf_bytes, st.session_state.pdf_filename), unsafe_allow_html=True)
+            st.info("📌 Después de abrir el PDF, selecciona y copia el texto que necesites, luego pégalo abajo.")
         
         st.markdown("---")
         
-        # Área de captura - Sin colores en los botones
+        # Área de captura - SIN COLORES
         col_texto, col_botones = st.columns([1, 1])
         
         with col_texto:
             st.markdown("### 📝 Texto seleccionado")
             
-            st.info("📋 **Instrucciones:**\n1. Selecciona texto en el PDF de la izquierda\n2. Cópialo (Ctrl+C o Cmd+C)\n3. Pégalo aquí abajo\n4. Presiona el botón del campo correspondiente")
+            st.info("📋 **Instrucciones:**\n1. Selecciona texto del PDF (de la vista de texto o del PDF descargado)\n2. Cópialo (Ctrl+C o Cmd+C)\n3. Pégalo aquí abajo\n4. Presiona el botón del campo correspondiente")
             
             texto_pegado = st.text_area(
                 "Pega aquí el texto que copiaste del PDF",
@@ -244,7 +226,6 @@ with tab1:
             st.markdown("### 🎯 Asignar a campo")
             st.markdown("**Presiona el botón del campo donde quieras guardar el texto**")
             
-            # Botones en el orden del Excel SIN COLORES
             col_btn1, col_btn2 = st.columns(2)
             
             with col_btn1:
@@ -346,7 +327,6 @@ with tab1:
                     today = datetime.now()
                     medio = st.session_state.nota_actual.get('medio', '')
                     
-                    # Determinar tipo de medio según el texto
                     tipo_medio = 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *'
                     if any(x in medio.lower() for x in ['radio', 'fm', 'am']):
                         tipo_medio = 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * '
@@ -377,7 +357,6 @@ with tab1:
                     }
                     st.session_state.notas_capturadas.append(nota_completa)
                     st.success(f"✅ Nota {len(st.session_state.notas_capturadas)} guardada")
-                    # Limpiar nota actual
                     st.session_state.nota_actual = {}
                     st.session_state.texto_seleccionado = ""
                     st.rerun()
@@ -390,7 +369,7 @@ with tab1:
         ### 📖 ¿Cómo empezar?
         
         1. **Sube un PDF** en la barra lateral izquierda
-        2. El PDF se mostrará aquí mismo
+        2. El texto del PDF se extraerá automáticamente
         3. **Selecciona y copia** el texto que necesites
         4. **Pégalo** en el campo de texto
         5. **Presiona el botón** del campo correspondiente
@@ -402,16 +381,16 @@ with tab2:
     st.subheader("📋 Tabla de Notas Capturadas")
     if st.session_state.notas_capturadas:
         df_show = pd.DataFrame(st.session_state.notas_capturadas)
-        # Mostrar solo las columnas que existen
         columns_to_show = [col for col in OFFICIAL_COLUMNS if col in df_show.columns]
         st.dataframe(df_show[columns_to_show], use_container_width=True, height=500)
         
         st.markdown("### 📊 Estadísticas")
         col_est1, col_est2, col_est3, col_est4 = st.columns(4)
         col_est1.metric("Total Notas", len(df_show))
-        col_est2.metric("Positivas", len(df_show[df_show['Informativo / Positivo/ Negativo'] == 'Positivo']) if 'Informativo / Positivo/ Negativo' in df_show.columns else 0)
-        col_est3.metric("Informativas", len(df_show[df_show['Informativo / Positivo/ Negativo'] == 'Informativo']) if 'Informativo / Positivo/ Negativo' in df_show.columns else 0)
-        col_est4.metric("Negativas", len(df_show[df_show['Informativo / Positivo/ Negativo'] == 'Negativo']) if 'Informativo / Positivo/ Negativo' in df_show.columns else 0)
+        if 'Informativo / Positivo/ Negativo' in df_show.columns:
+            col_est2.metric("Positivas", len(df_show[df_show['Informativo / Positivo/ Negativo'] == 'Positivo']))
+            col_est3.metric("Informativas", len(df_show[df_show['Informativo / Positivo/ Negativo'] == 'Informativo']))
+            col_est4.metric("Negativas", len(df_show[df_show['Informativo / Positivo/ Negativo'] == 'Negativo']))
     else:
         st.info("No hay notas capturadas aún")
 
@@ -446,7 +425,6 @@ with tab3:
                 )
                 st.plotly_chart(fig_campana, use_container_width=True)
         
-        # Gráfica de relevancia
         if 'RTP, ¿Es relevante en la nota?' in df_graph.columns:
             fig_relevancia = px.bar(
                 df_graph,
@@ -457,7 +435,6 @@ with tab3:
             )
             st.plotly_chart(fig_relevancia, use_container_width=True)
         
-        # Gráfica de temas
         if 'Tema de la nota' in df_graph.columns:
             temas_counts = df_graph['Tema de la nota'].value_counts().reset_index()
             temas_counts.columns = ['Tema', 'Cantidad']
@@ -520,11 +497,12 @@ with st.expander("📖 ¿Cómo usar esta herramienta?"):
     **1. Carga un archivo PDF** en la barra lateral
     
     **2. Visualiza el PDF:**
-    - El PDF se muestra completo en la pestaña principal
-    - Puedes hacer scroll, zoom y seleccionar texto directamente
+    - El texto del PDF se extrae automáticamente
+    - Puedes seleccionar y copiar texto directamente desde la vista de texto
+    - También puedes descargar el PDF para abrirlo en tu visor preferido
     
     **3. Captura el texto:**
-    - **Selecciona** el texto en el PDF (con el mouse)
+    - **Selecciona** el texto del PDF (desde la vista de texto o del PDF descargado)
     - **Cópialo** (Ctrl+C o Cmd+C)
     - **Pégalo** en el campo "Texto seleccionado"
     - **Presiona el botón** del campo correspondiente
