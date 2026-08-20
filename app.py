@@ -1,3 +1,5 @@
+[file name]: import io.txt
+[file content begin]
 import io
 import re
 import streamlit as st
@@ -6,6 +8,7 @@ import plotly.express as px
 import pdfplumber
 from datetime import datetime
 import base64
+import os
 
 # Configuración de página
 st.set_page_config(
@@ -95,6 +98,41 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     .stTabs [data-baseweb="tab"] { border-radius: 8px 8px 0px 0px; padding: 12px 20px; background-color: #f0f2f6; font-weight: bold; }
     .stTabs [data-baseweb="tab"][aria-selected="true"] { background-color: #007bff; color: white; }
+    
+    /* Estilo para el visor PDF estilo WhatsApp */
+    .pdf-whatsapp-style {
+        background: #f0f2f5;
+        border-radius: 12px;
+        padding: 20px;
+        min-height: 600px;
+    }
+    .pdf-header {
+        background: white;
+        padding: 15px 20px;
+        border-radius: 12px 12px 0 0;
+        border-bottom: 1px solid #e9ecef;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .pdf-body {
+        background: white;
+        padding: 20px;
+        border-radius: 0 0 12px 12px;
+        min-height: 550px;
+    }
+    .pdf-viewer-wrapper {
+        width: 100%;
+        height: 600px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .pdf-viewer-wrapper iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -128,6 +166,39 @@ def map_campana(sentiment):
 def get_pdf_base64(pdf_bytes):
     """Convierte PDF a base64 para incrustar en HTML"""
     return base64.b64encode(pdf_bytes).decode('utf-8')
+
+def get_pdf_viewer_html(pdf_base64, filename):
+    """Genera HTML para visualizar PDF estilo WhatsApp"""
+    return f"""
+    <div class="pdf-whatsapp-style">
+        <div class="pdf-header">
+            <div>
+                <span style="font-size: 20px;">📄</span>
+                <span style="font-weight: 500; margin-left: 10px;">{filename}</span>
+            </div>
+            <div>
+                <span style="color: #6c757d; font-size: 13px;">
+                    🔍 Usa Ctrl+Scroll para zoom | Selecciona texto para copiar
+                </span>
+            </div>
+        </div>
+        <div class="pdf-body">
+            <div class="pdf-viewer-wrapper">
+                <iframe 
+                    src="data:application/pdf;base64,{pdf_base64}#toolbar=1&navpanes=1&scrollbar=1&view=FitH&zoom=page-width"
+                    title="Visor PDF"
+                    sandbox="allow-same-origin allow-scripts allow-modals"
+                    style="width:100%; height:100%; border:none; background:white;"
+                >
+                    <p>Tu navegador no soporta la visualización de PDFs.</p>
+                    <a href="data:application/pdf;base64,{pdf_base64}" download="{filename}">
+                        Descargar PDF
+                    </a>
+                </iframe>
+            </div>
+        </div>
+    </div>
+    """
 
 # --- INICIALIZAR SESSION STATE ---
 if 'notas_capturadas' not in st.session_state:
@@ -196,28 +267,8 @@ with tab1:
         # Convertir PDF a base64 para incrustar
         pdf_base64 = get_pdf_base64(st.session_state.pdf_bytes)
         
-        # Crear visor PDF con toolbar personalizado
-        pdf_html = f"""
-        <div class="pdf-container">
-            <div class="pdf-toolbar">
-                <span>📄 {st.session_state.pdf_filename}</span>
-                <span style="color: #6c757d; font-size: 12px;">
-                    🔍 Usa Ctrl+Scroll para hacer zoom | Selecciona texto para copiar
-                </span>
-            </div>
-            <iframe 
-                src="data:application/pdf;base64,{pdf_base64}#toolbar=1&navpanes=1&scrollbar=1&view=FitH"
-                title="Visor PDF"
-                sandbox="allow-same-origin allow-scripts"
-            >
-                Tu navegador no soporta la visualización de PDFs.
-                <a href="data:application/pdf;base64,{pdf_base64}" download="{st.session_state.pdf_filename}">
-                    Descargar PDF
-                </a>
-            </iframe>
-        </div>
-        """
-        
+        # Mostrar PDF con visor estilo WhatsApp
+        pdf_html = get_pdf_viewer_html(pdf_base64, st.session_state.pdf_filename)
         st.markdown(pdf_html, unsafe_allow_html=True)
         
         # Botón para descargar el PDF
@@ -590,3 +641,4 @@ with st.expander("📖 ¿Cómo usar esta herramienta?"):
     - Analiza en "Gráficas"
     - Descarga el Excel con el botón grande
     """)
+[file content end]
