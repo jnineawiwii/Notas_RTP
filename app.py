@@ -37,16 +37,30 @@ st.markdown("""
     .btn-link { background: #17a2b8; }
     .btn-tema { background: #6f42c1; }
     
-    .pdf-viewer {
+    .pdf-container {
+        width: 100%;
+        height: 650px;
         border: 2px solid #dee2e6;
         border-radius: 8px;
-        height: 600px;
         overflow: hidden;
+        background: #f8f9fa;
+        position: relative;
     }
-    .pdf-viewer iframe {
+    .pdf-container iframe {
         width: 100%;
         height: 100%;
         border: none;
+        background: white;
+    }
+    .pdf-container .pdf-toolbar {
+        background: #f8f9fa;
+        padding: 8px 15px;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 14px;
+        color: #495057;
     }
     
     .leyenda-colores {
@@ -111,30 +125,15 @@ def map_campana(sentiment):
         return "RTP avanza"
     return "RTP informa"
 
-def extract_pdf_text(pdf_file):
-    """Extrae texto del PDF para mostrar en vista previa"""
-    full_text = ""
-    try:
-        with pdfplumber.open(pdf_file) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text() or ""
-                full_text += text + "\n"
-    except:
-        pass
-    return full_text
-
-def get_pdf_download_link(pdf_bytes, filename):
-    """Genera un link para descargar/ver el PDF"""
-    b64 = base64.b64encode(pdf_bytes).decode()
-    return f'data:application/pdf;base64,{b64}'
+def get_pdf_base64(pdf_bytes):
+    """Convierte PDF a base64 para incrustar en HTML"""
+    return base64.b64encode(pdf_bytes).decode('utf-8')
 
 # --- INICIALIZAR SESSION STATE ---
 if 'notas_capturadas' not in st.session_state:
     st.session_state.notas_capturadas = []
 if 'nota_actual' not in st.session_state:
     st.session_state.nota_actual = {}
-if 'notas_extraidas' not in st.session_state:
-    st.session_state.notas_extraidas = []
 if 'texto_seleccionado' not in st.session_state:
     st.session_state.texto_seleccionado = ""
 if 'relevancia_seleccionada' not in st.session_state:
@@ -177,18 +176,11 @@ if uploaded_file:
             st.sidebar.error(f"❌ Error: {e}")
     
     elif ext == "pdf":
-        # Guardar el PDF en session state para mostrarlo
+        # Guardar el PDF en session state
         pdf_bytes = uploaded_file.getvalue()
         st.session_state.pdf_bytes = pdf_bytes
         st.session_state.pdf_filename = uploaded_file.name
         st.sidebar.success(f"✅ PDF cargado: {uploaded_file.name}")
-        
-        # Extraer texto para ayuda (opcional)
-        with st.spinner("📄 Preparando PDF..."):
-            full_text = extract_pdf_text(uploaded_file)
-            if full_text.strip():
-                st.session_state.notas_extraidas = full_text.split('\n\n')
-                st.sidebar.info(f"📊 Texto extraído: {len(full_text)} caracteres")
 
 # --- INTERFAZ PRINCIPAL ---
 # TABS principales
@@ -198,29 +190,46 @@ tab1, tab2, tab3, tab4 = st.tabs(["📄 Visualizar PDF y Capturar", "📋 Tabla 
 with tab1:
     if st.session_state.pdf_bytes:
         
-        # Mostrar el PDF original
         st.markdown("### 📄 PDF Original")
         st.markdown("**💡 Instrucción:** Selecciona y copia texto del PDF, pégalo en el campo de abajo, luego presiona el botón del campo correspondiente")
         
-        # Visor del PDF
-        pdf_link = get_pdf_download_link(st.session_state.pdf_bytes, st.session_state.pdf_filename)
+        # Convertir PDF a base64 para incrustar
+        pdf_base64 = get_pdf_base64(st.session_state.pdf_bytes)
         
-        st.markdown(f"""
-        <div class="pdf-viewer">
-            <iframe src="{pdf_link}#toolbar=1&navpanes=1&scrollbar=1" 
-                    allow="fullscreen" 
-                    title="Visor PDF">
+        # Crear visor PDF con toolbar personalizado
+        pdf_html = f"""
+        <div class="pdf-container">
+            <div class="pdf-toolbar">
+                <span>📄 {st.session_state.pdf_filename}</span>
+                <span style="color: #6c757d; font-size: 12px;">
+                    🔍 Usa Ctrl+Scroll para hacer zoom | Selecciona texto para copiar
+                </span>
+            </div>
+            <iframe 
+                src="data:application/pdf;base64,{pdf_base64}#toolbar=1&navpanes=1&scrollbar=1&view=FitH"
+                title="Visor PDF"
+                sandbox="allow-same-origin allow-scripts"
+            >
+                Tu navegador no soporta la visualización de PDFs.
+                <a href="data:application/pdf;base64,{pdf_base64}" download="{st.session_state.pdf_filename}">
+                    Descargar PDF
+                </a>
             </iframe>
         </div>
-        """, unsafe_allow_html=True)
+        """
         
-        # Opción de descarga del PDF
-        st.download_button(
-            label="📄 Descargar PDF original",
-            data=st.session_state.pdf_bytes,
-            file_name=st.session_state.pdf_filename,
-            mime="application/pdf"
-        )
+        st.markdown(pdf_html, unsafe_allow_html=True)
+        
+        # Botón para descargar el PDF
+        col_pdf1, col_pdf2, col_pdf3 = st.columns([1, 1, 1])
+        with col_pdf2:
+            st.download_button(
+                label="📄 Descargar PDF original",
+                data=st.session_state.pdf_bytes,
+                file_name=st.session_state.pdf_filename,
+                mime="application/pdf",
+                use_container_width=True
+            )
         
         st.markdown("---")
         
@@ -242,26 +251,54 @@ with tab1:
         with col_texto:
             st.markdown("### 📝 Texto seleccionado")
             
+            # Instrucciones claras
+            st.info("📋 **Instrucciones:**\n1. Selecciona texto en el PDF de la izquierda\n2. Cópialo (Ctrl+C o Cmd+C)\n3. Pégalo aquí abajo\n4. Presiona el botón del campo correspondiente")
+            
             # Campo para pegar texto
             texto_pegado = st.text_area(
                 "Pega aquí el texto que copiaste del PDF",
                 value=st.session_state.texto_seleccionado,
                 height=150,
-                placeholder="1. Selecciona texto en el PDF\n2. Cópialo (Ctrl+C)\n3. Pégalo aquí (Ctrl+V)\n4. Presiona el botón correspondiente",
-                key="texto_pegado_input"
+                placeholder="Ejemplo: 'RTP que fue transformado en Papamóvil...'",
+                key="texto_pegado_input",
+                label_visibility="collapsed"
             )
             
             if texto_pegado != st.session_state.texto_seleccionado:
                 st.session_state.texto_seleccionado = texto_pegado
+            
+            # Mostrar el texto actual asignado
+            if st.session_state.nota_actual:
+                st.markdown("#### 📋 Campos asignados en esta nota:")
+                campos_info = []
+                if st.session_state.nota_actual.get('titulo'):
+                    campos_info.append(f"✅ Título: {st.session_state.nota_actual['titulo'][:50]}...")
+                if st.session_state.nota_actual.get('resumen'):
+                    campos_info.append(f"✅ Resumen: {st.session_state.nota_actual['resumen'][:50]}...")
+                if st.session_state.nota_actual.get('medio'):
+                    campos_info.append(f"✅ Medio: {st.session_state.nota_actual['medio']}")
+                if st.session_state.nota_actual.get('autor'):
+                    campos_info.append(f"✅ Autor: {st.session_state.nota_actual['autor']}")
+                if st.session_state.nota_actual.get('link'):
+                    campos_info.append(f"✅ Link: {st.session_state.nota_actual['link'][:50]}...")
+                if st.session_state.nota_actual.get('tema'):
+                    campos_info.append(f"✅ Tema: {st.session_state.nota_actual['tema']}")
+                
+                if campos_info:
+                    for info in campos_info:
+                        st.text(info)
+                else:
+                    st.info("⬜ Ningún campo asignado aún")
         
         with col_botones:
             st.markdown("### 🎯 Asignar a campo")
             st.markdown("**Presiona el botón del campo donde quieras guardar el texto**")
             
-            # Botones en el orden del Excel
+            # Botones en el orden del Excel con colores
             col_btn1, col_btn2 = st.columns(2)
             
             with col_btn1:
+                # Título - AZUL
                 if st.button("📌 Título de la nota", use_container_width=True, key="btn_titulo"):
                     if st.session_state.texto_seleccionado.strip():
                         st.session_state.nota_actual['titulo'] = st.session_state.texto_seleccionado.strip()
@@ -271,7 +308,8 @@ with tab1:
                     else:
                         st.warning("⚠️ Primero copia y pega texto del PDF")
                 
-                if st.button("📝 RESUMEN DE LA NOTA", use_container_width=True, key="btn_resumen"):
+                # Resumen - VERDE
+                if st.button("📝 RESUMEN DE LA NOTA (RTP)", use_container_width=True, key="btn_resumen"):
                     if st.session_state.texto_seleccionado.strip():
                         st.session_state.nota_actual['resumen'] = st.session_state.texto_seleccionado.strip()
                         st.success("✅ Asignado a Resumen")
@@ -280,6 +318,7 @@ with tab1:
                     else:
                         st.warning("⚠️ Primero copia y pega texto del PDF")
                 
+                # Medio - AMARILLO
                 if st.button("📰 MEDIOS DE COMUNICACIÓN", use_container_width=True, key="btn_medio"):
                     if st.session_state.texto_seleccionado.strip():
                         st.session_state.nota_actual['medio'] = st.session_state.texto_seleccionado.strip()
@@ -290,6 +329,7 @@ with tab1:
                         st.warning("⚠️ Primero copia y pega texto del PDF")
             
             with col_btn2:
+                # Autor - ROJO
                 if st.button("✍️ Autor", use_container_width=True, key="btn_autor"):
                     if st.session_state.texto_seleccionado.strip():
                         st.session_state.nota_actual['autor'] = st.session_state.texto_seleccionado.strip()
@@ -299,15 +339,20 @@ with tab1:
                     else:
                         st.warning("⚠️ Primero copia y pega texto del PDF")
                 
+                # Link - CELESTE
                 if st.button("🔗 LINK", use_container_width=True, key="btn_link"):
                     if st.session_state.texto_seleccionado.strip():
                         st.session_state.nota_actual['link'] = st.session_state.texto_seleccionado.strip()
-                        st.success("✅ Asignado a Link")
+                        if st.session_state.texto_seleccionado.strip().startswith('http'):
+                            st.success("✅ Asignado a Link (clickeable)")
+                        else:
+                            st.success("✅ Asignado a Link")
                         st.session_state.texto_seleccionado = ""
                         st.rerun()
                     else:
                         st.warning("⚠️ Primero copia y pega texto del PDF")
                 
+                # Tema - MORADO
                 if st.button("📂 Tema de la nota", use_container_width=True, key="btn_tema"):
                     if st.session_state.texto_seleccionado.strip():
                         st.session_state.nota_actual['tema'] = st.session_state.texto_seleccionado.strip()
@@ -342,25 +387,8 @@ with tab1:
             st.session_state.tono_seleccionado = tono
         
         with col_config3:
-            # Mostrar resumen de campos asignados
-            campos_asignados = []
-            if st.session_state.nota_actual.get('titulo'):
-                campos_asignados.append("Título")
-            if st.session_state.nota_actual.get('resumen'):
-                campos_asignados.append("Resumen")
-            if st.session_state.nota_actual.get('medio'):
-                campos_asignados.append("Medio")
-            if st.session_state.nota_actual.get('autor'):
-                campos_asignados.append("Autor")
-            if st.session_state.nota_actual.get('link'):
-                campos_asignados.append("Link")
-            if st.session_state.nota_actual.get('tema'):
-                campos_asignados.append("Tema")
-            
-            if campos_asignados:
-                st.success(f"✅ Campos asignados: {', '.join(campos_asignados)}")
-            else:
-                st.info("⬜ Ningún campo asignado aún")
+            if st.session_state.nota_actual.get('link') and st.session_state.nota_actual['link'].startswith('http'):
+                st.markdown(f'🔗 <a href="{st.session_state.nota_actual["link"]}" target="_blank">Abrir link</a>', unsafe_allow_html=True)
         
         # Botón guardar
         st.markdown("---")
@@ -409,6 +437,16 @@ with tab1:
     
     else:
         st.info("📄 Sube un archivo PDF en la barra lateral para visualizarlo y capturar notas")
+        st.markdown("""
+        ### 📖 ¿Cómo empezar?
+        
+        1. **Sube un PDF** en la barra lateral izquierda
+        2. El PDF se mostrará aquí mismo
+        3. **Selecciona y copia** el texto que necesites
+        4. **Pégalo** en el campo de texto
+        5. **Presiona el botón** del campo correspondiente
+        6. **Guarda** la nota completa
+        """)
 
 # --- TAB 2: TABLA DE NOTAS ---
 with tab2:
@@ -529,19 +567,20 @@ with st.expander("📖 ¿Cómo usar esta herramienta?"):
     **2. Visualiza el PDF:**
     - El PDF se muestra completo en la pestaña principal
     - Puedes hacer scroll, zoom y seleccionar texto directamente
+    - Similar a cómo WhatsApp muestra los PDFs
     
     **3. Captura el texto:**
-    - **Selecciona** el texto en el PDF
-    - **Cópialo** (Ctrl+C)
+    - **Selecciona** el texto en el PDF (con el mouse)
+    - **Cópialo** (Ctrl+C o Cmd+C)
     - **Pégalo** en el campo "Texto seleccionado"
     - **Presiona el botón** del campo correspondiente
     
     **4. Colores de los campos:**
-    - 🔵 **Título de la nota** (Azul)
+    - 🔵 **Título de la nota** (Azul) - Campo obligatorio
     - 🟢 **RESUMEN DE LA NOTA (RTP)** (Verde)
     - 🟡 **MEDIOS DE COMUNICACIÓN** (Amarillo)
     - 🔴 **Autor** (Rojo)
-    - 🔷 **LINK** (Celeste)
+    - 🔷 **LINK** (Celeste) - Clickeable
     - 🟣 **Tema de la nota** (Morado)
     
     **5. Guarda y exporta:**
