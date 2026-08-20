@@ -34,6 +34,21 @@ st.markdown("""
     .pdf-text-container p {
         color: #000000 !important;
     }
+    .link-error {
+        background-color: #fff3cd;
+        border: 1px solid #ffc107;
+        padding: 10px;
+        border-radius: 5px;
+        margin: 5px 0;
+    }
+    .field-assigned {
+        background-color: #d4edda;
+        padding: 5px 10px;
+        border-radius: 4px;
+        margin: 2px 0;
+        font-size: 13px;
+        border-left: 3px solid #28a745;
+    }
     .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     .stTabs [data-baseweb="tab"] { border-radius: 8px 8px 0px 0px; padding: 12px 20px; background-color: #f0f2f6; font-weight: bold; }
     .stTabs [data-baseweb="tab"][aria-selected="true"] { background-color: #007bff; color: white; }
@@ -43,9 +58,12 @@ st.markdown("""
 st.title("🚌 Captura de Notas - Monitoreo RTP")
 st.caption("Abre el PDF, copia el texto y asígnalo a cada campo con los botones")
 
-# Columnas oficiales
+# Columnas oficiales - TODAS las columnas del Excel
 OFFICIAL_COLUMNS = [
-    'Año', '# Mes', 'Mes', 'Fecha ',
+    'Año',
+    '# Mes',
+    'Mes',
+    'Fecha ',
     'Título de la nota',
     'RTP, ¿Es relevante en la nota?',
     'Tema de la nota',
@@ -61,6 +79,28 @@ OFFICIAL_COLUMNS = [
     'PUBLICACIÓN BOLETÍN',
     'RESUMEN  DE LA NOTA (RTP)'
 ]
+
+# Mapeo de nombres amigables para los botones
+FIELD_NAMES = {
+    'Año': '📅 Año',
+    '# Mes': '🔢 # Mes',
+    'Mes': '📆 Mes',
+    'Fecha ': '📅 Fecha',
+    'Título de la nota': '📌 Título de la nota',
+    'RTP, ¿Es relevante en la nota?': '🎯 ¿Es relevante para RTP?',
+    'Tema de la nota': '📂 Tema de la nota',
+    'Campaña': '🏷️ Campaña',
+    'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ': '📻 Radio',
+    'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *': '📺 Televisión',
+    'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *': '🌐 Medios Digitales',
+    'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *': '📰 Medios Impresos',
+    'OTROS (Twitter, Facebook, You Tube, etc.).': '📱 Otros (Redes Sociales)',
+    'Informativo / Positivo/ Negativo': '📊 Tono',
+    'LINK': '🔗 LINK',
+    'Autor': '✍️ Autor',
+    'PUBLICACIÓN BOLETÍN': '📄 Publicación Boletín',
+    'RESUMEN  DE LA NOTA (RTP)': '📝 Resumen de la nota'
+}
 
 def map_campana(sentiment):
     if sentiment == "Positivo":
@@ -84,6 +124,26 @@ def get_pdf_download_link(pdf_bytes, filename):
     """Genera un enlace de descarga para el PDF"""
     b64 = base64.b64encode(pdf_bytes).decode()
     return f'<a href="data:application/pdf;base64,{b64}" download="{filename}" style="display: inline-block; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">📄 Descargar PDF</a>'
+
+def validate_and_format_link(link):
+    """Valida y formatea un link correctamente"""
+    if not link or pd.isna(link):
+        return None
+    
+    link = str(link).strip()
+    
+    if link.startswith('\\\\') or link.startswith('\\'):
+        return None
+    
+    if not link.startswith(('http://', 'https://')):
+        if re.match(r'^[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}', link):
+            return f'https://{link}'
+        return None
+    
+    if re.match(r'^https?://[^\s]+', link):
+        return link
+    
+    return None
 
 # --- INICIALIZAR SESSION STATE ---
 if 'notas_capturadas' not in st.session_state:
@@ -137,7 +197,6 @@ if uploaded_file:
         pdf_bytes = uploaded_file.getvalue()
         st.session_state.pdf_bytes = pdf_bytes
         st.session_state.pdf_filename = uploaded_file.name
-        # Extraer texto del PDF
         st.session_state.pdf_text = extract_text_from_pdf(pdf_bytes)
         st.sidebar.success(f"✅ PDF cargado: {uploaded_file.name}")
 
@@ -150,7 +209,6 @@ with tab1:
         
         st.markdown("### 📄 PDF Original")
         
-        # Opciones de visualización
         view_option = st.radio(
             "Selecciona cómo ver el PDF:",
             ["📝 Ver texto extraído", "📄 Descargar y abrir PDF"],
@@ -160,7 +218,6 @@ with tab1:
         if view_option == "📝 Ver texto extraído":
             st.markdown("**💡 Instrucción:** Selecciona y copia el texto del PDF desde abajo, pégalo en el campo correspondiente")
             
-            # Mostrar el texto extraído del PDF
             if st.session_state.pdf_text:
                 st.markdown("#### 📄 Contenido del PDF (texto extraído)")
                 st.markdown(
@@ -169,7 +226,6 @@ with tab1:
                 )
             else:
                 st.warning("No se pudo extraer texto del PDF. Intenta con el visor nativo.")
-                # Opción de descarga
                 st.markdown(get_pdf_download_link(st.session_state.pdf_bytes, st.session_state.pdf_filename), unsafe_allow_html=True)
         
         else:
@@ -179,13 +235,13 @@ with tab1:
         
         st.markdown("---")
         
-        # Área de captura - SIN COLORES
-        col_texto, col_botones = st.columns([1, 1])
+        # Área de captura - con botones para TODAS las columnas
+        col_texto, col_botones = st.columns([1, 1.5])
         
         with col_texto:
             st.markdown("### 📝 Texto seleccionado")
             
-            st.info("📋 **Instrucciones:**\n1. Selecciona texto del PDF (de la vista de texto o del PDF descargado)\n2. Cópialo (Ctrl+C o Cmd+C)\n3. Pégalo aquí abajo\n4. Presiona el botón del campo correspondiente")
+            st.info("📋 **Instrucciones:**\n1. Selecciona texto del PDF\n2. Cópialo (Ctrl+C o Cmd+C)\n3. Pégalo aquí abajo\n4. Presiona el botón del campo correspondiente")
             
             texto_pegado = st.text_area(
                 "Pega aquí el texto que copiaste del PDF",
@@ -199,104 +255,62 @@ with tab1:
             if texto_pegado != st.session_state.texto_seleccionado:
                 st.session_state.texto_seleccionado = texto_pegado
             
-            # Mostrar el texto actual asignado
+            # Mostrar los campos asignados
             if st.session_state.nota_actual:
                 st.markdown("#### 📋 Campos asignados en esta nota:")
-                campos_info = []
-                if st.session_state.nota_actual.get('titulo'):
-                    campos_info.append(f"✅ Título: {st.session_state.nota_actual['titulo'][:50]}...")
-                if st.session_state.nota_actual.get('resumen'):
-                    campos_info.append(f"✅ Resumen: {st.session_state.nota_actual['resumen'][:50]}...")
-                if st.session_state.nota_actual.get('medio'):
-                    campos_info.append(f"✅ Medio: {st.session_state.nota_actual['medio']}")
-                if st.session_state.nota_actual.get('autor'):
-                    campos_info.append(f"✅ Autor: {st.session_state.nota_actual['autor']}")
-                if st.session_state.nota_actual.get('link'):
-                    campos_info.append(f"✅ Link: {st.session_state.nota_actual['link'][:50]}...")
-                if st.session_state.nota_actual.get('tema'):
-                    campos_info.append(f"✅ Tema: {st.session_state.nota_actual['tema']}")
-                
-                if campos_info:
-                    for info in campos_info:
-                        st.text(info)
-                else:
-                    st.info("⬜ Ningún campo asignado aún")
+                for col, value in st.session_state.nota_actual.items():
+                    if value:
+                        display_name = FIELD_NAMES.get(col, col)
+                        st.markdown(f'<div class="field-assigned">✅ {display_name}: {str(value)[:60]}...</div>', unsafe_allow_html=True)
+            else:
+                st.info("⬜ Ningún campo asignado aún")
         
         with col_botones:
             st.markdown("### 🎯 Asignar a campo")
             st.markdown("**Presiona el botón del campo donde quieras guardar el texto**")
             
-            col_btn1, col_btn2 = st.columns(2)
+            # Organizar botones en 3 columnas para más eficiencia
+            col_btn1, col_btn2, col_btn3 = st.columns(3)
             
-            with col_btn1:
-                # Título
-                if st.button("📌 Título de la nota", use_container_width=True, key="btn_titulo"):
-                    if st.session_state.texto_seleccionado.strip():
-                        st.session_state.nota_actual['titulo'] = st.session_state.texto_seleccionado.strip()
-                        st.success("✅ Asignado a Título")
-                        st.session_state.texto_seleccionado = ""
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ Primero copia y pega texto del PDF")
-                
-                # Resumen
-                if st.button("📝 RESUMEN DE LA NOTA (RTP)", use_container_width=True, key="btn_resumen"):
-                    if st.session_state.texto_seleccionado.strip():
-                        st.session_state.nota_actual['resumen'] = st.session_state.texto_seleccionado.strip()
-                        st.success("✅ Asignado a Resumen")
-                        st.session_state.texto_seleccionado = ""
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ Primero copia y pega texto del PDF")
-                
-                # Medio
-                if st.button("📰 MEDIOS DE COMUNICACIÓN", use_container_width=True, key="btn_medio"):
-                    if st.session_state.texto_seleccionado.strip():
-                        st.session_state.nota_actual['medio'] = st.session_state.texto_seleccionado.strip()
-                        st.success("✅ Asignado a Medio")
-                        st.session_state.texto_seleccionado = ""
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ Primero copia y pega texto del PDF")
+            # Campos que NO deben tener botón (se configuran automáticamente)
+            AUTO_FIELDS = ['Año', '# Mes', 'Mes', 'Fecha ', 'Campaña', 'Informativo / Positivo/ Negativo']
             
-            with col_btn2:
-                # Autor
-                if st.button("✍️ Autor", use_container_width=True, key="btn_autor"):
-                    if st.session_state.texto_seleccionado.strip():
-                        st.session_state.nota_actual['autor'] = st.session_state.texto_seleccionado.strip()
-                        st.success("✅ Asignado a Autor")
-                        st.session_state.texto_seleccionado = ""
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ Primero copia y pega texto del PDF")
+            # Campos que tienen botón
+            BUTTON_FIELDS = [col for col in OFFICIAL_COLUMNS if col not in AUTO_FIELDS]
+            
+            # Distribuir botones en 3 columnas
+            for idx, col_name in enumerate(BUTTON_FIELDS):
+                col_idx = idx % 3
+                target_col = [col_btn1, col_btn2, col_btn3][col_idx]
                 
-                # Link
-                if st.button("🔗 LINK", use_container_width=True, key="btn_link"):
-                    if st.session_state.texto_seleccionado.strip():
-                        st.session_state.nota_actual['link'] = st.session_state.texto_seleccionado.strip()
-                        st.success("✅ Asignado a Link")
-                        st.session_state.texto_seleccionado = ""
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ Primero copia y pega texto del PDF")
+                display_name = FIELD_NAMES.get(col_name, col_name)
+                button_key = f"btn_{col_name.replace(' ', '_').replace('*', '').replace('(', '').replace(')', '').replace('/', '_')}"
                 
-                # Tema
-                if st.button("📂 Tema de la nota", use_container_width=True, key="btn_tema"):
-                    if st.session_state.texto_seleccionado.strip():
-                        st.session_state.nota_actual['tema'] = st.session_state.texto_seleccionado.strip()
-                        st.success("✅ Asignado a Tema")
-                        st.session_state.texto_seleccionado = ""
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ Primero copia y pega texto del PDF")
+                with target_col:
+                    if st.button(display_name, use_container_width=True, key=button_key):
+                        if st.session_state.texto_seleccionado.strip():
+                            st.session_state.nota_actual[col_name] = st.session_state.texto_seleccionado.strip()
+                            st.success(f"✅ Asignado a {display_name}")
+                            st.session_state.texto_seleccionado = ""
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ Primero copia y pega texto del PDF")
         
-        # Configuración adicional
+        # Configuración adicional (campos automáticos)
         st.markdown("---")
         st.markdown("### ⚙️ Configuración de la nota")
         
-        col_config1, col_config2, col_config3 = st.columns(3)
+        col_config1, col_config2, col_config3, col_config4 = st.columns(4)
         
         with col_config1:
+            # Fecha automática
+            today = datetime.now()
+            st.text_input("📅 Fecha", value=today.strftime("%Y-%m-%d"), disabled=True)
+            st.text_input("📆 Mes", value=today.strftime("%B").capitalize(), disabled=True)
+            st.text_input("🔢 # Mes", value=str(today.month), disabled=True)
+            st.text_input("📅 Año", value=str(today.year), disabled=True)
+        
+        with col_config2:
             relevancia = st.selectbox(
                 "🎯 ¿Es relevante para RTP?",
                 ["Sí", "No"],
@@ -304,64 +318,86 @@ with tab1:
                 key="select_relevancia"
             )
             st.session_state.relevancia_seleccionada = relevancia
+            st.session_state.nota_actual['RTP, ¿Es relevante en la nota?'] = relevancia
         
-        with col_config2:
+        with col_config3:
             tono = st.selectbox(
-                "🎯 Tono de la nota",
+                "📊 Tono de la nota",
                 ["Informativo", "Positivo", "Negativo"],
                 index=["Informativo", "Positivo", "Negativo"].index(st.session_state.tono_seleccionado),
                 key="select_tono"
             )
             st.session_state.tono_seleccionado = tono
+            st.session_state.nota_actual['Informativo / Positivo/ Negativo'] = tono
         
-        with col_config3:
-            if st.session_state.nota_actual.get('link') and st.session_state.nota_actual['link'].startswith('http'):
-                st.markdown(f'🔗 <a href="{st.session_state.nota_actual["link"]}" target="_blank">Abrir link</a>', unsafe_allow_html=True)
+        with col_config4:
+            # Mostrar campaña automática
+            campana = map_campana(tono)
+            st.text_input("🏷️ Campaña", value=campana, disabled=True)
+            st.session_state.nota_actual['Campaña'] = campana
+            
+            # Mostrar link si existe
+            link = st.session_state.nota_actual.get('LINK', '')
+            if link:
+                formatted_link = validate_and_format_link(link)
+                if formatted_link:
+                    st.markdown(f'🔗 <a href="{formatted_link}" target="_blank">Abrir link</a>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="link-error">⚠️ Link no válido</div>', unsafe_allow_html=True)
         
         # Botón guardar
         st.markdown("---")
         col_guardar1, col_guardar2, col_guardar3 = st.columns([1, 2, 1])
         with col_guardar2:
             if st.button("💾 GUARDAR NOTA COMPLETA", use_container_width=True, key="btn_guardar_completa"):
-                if st.session_state.nota_actual.get('titulo'):
+                # Verificar que el título esté asignado
+                if st.session_state.nota_actual.get('Título de la nota'):
                     today = datetime.now()
-                    medio = st.session_state.nota_actual.get('medio', '')
                     
-                    tipo_medio = 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *'
-                    if any(x in medio.lower() for x in ['radio', 'fm', 'am']):
-                        tipo_medio = 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * '
-                    elif any(x in medio.lower() for x in ['tv', 'canal', 'televisa', 'televisión']):
-                        tipo_medio = 'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *'
-                    elif any(x in medio.lower() for x in ['twitter', 'facebook', 'youtube', 'instagram']):
-                        tipo_medio = 'OTROS (Twitter, Facebook, You Tube, etc.).'
+                    # Construir la nota completa con todos los campos
+                    nota_completa = {}
+                    for col in OFFICIAL_COLUMNS:
+                        if col in ['Año', '# Mes', 'Mes', 'Fecha ']:
+                            continue  # Estos se asignan automáticamente
+                        
+                        if col == 'Campaña':
+                            nota_completa[col] = map_campana(st.session_state.tono_seleccionado)
+                        elif col == 'Informativo / Positivo/ Negativo':
+                            nota_completa[col] = st.session_state.tono_seleccionado
+                        elif col == 'RTP, ¿Es relevante en la nota?':
+                            nota_completa[col] = st.session_state.relevancia_seleccionada
+                        else:
+                            # Obtener el valor de la nota actual o usar valor por defecto
+                            value = st.session_state.nota_actual.get(col, '')
+                            if col == 'LINK' and value:
+                                formatted = validate_and_format_link(value)
+                                nota_completa[col] = formatted if formatted else value
+                            else:
+                                nota_completa[col] = value
                     
-                    nota_completa = {
-                        'Año': today.year,
-                        '# Mes': today.month,
-                        'Mes': today.strftime("%B").capitalize(),
-                        'Fecha ': today.strftime("%Y-%m-%d"),
-                        'Título de la nota': st.session_state.nota_actual.get('titulo', ''),
-                        'RTP, ¿Es relevante en la nota?': relevancia,
-                        'Tema de la nota': st.session_state.nota_actual.get('tema', 'General'),
-                        'Campaña': map_campana(tono),
-                        'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ': medio if tipo_medio == 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ' else '',
-                        'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *': medio if tipo_medio == 'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *' else '',
-                        'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *': medio if tipo_medio == 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *' else '',
-                        'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *': medio if tipo_medio == 'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *' else '',
-                        'OTROS (Twitter, Facebook, You Tube, etc.).': medio if tipo_medio == 'OTROS (Twitter, Facebook, You Tube, etc.).' else '',
-                        'Informativo / Positivo/ Negativo': tono,
-                        'LINK': st.session_state.nota_actual.get('link', ''),
-                        'Autor': st.session_state.nota_actual.get('autor', 'Redacción'),
-                        'PUBLICACIÓN BOLETÍN': 'NO',
-                        'RESUMEN  DE LA NOTA (RTP)': st.session_state.nota_actual.get('resumen', '')
-                    }
+                    # Agregar campos automáticos
+                    nota_completa['Año'] = today.year
+                    nota_completa['# Mes'] = today.month
+                    nota_completa['Mes'] = today.strftime("%B").capitalize()
+                    nota_completa['Fecha '] = today.strftime("%Y-%m-%d")
+                    
+                    # Agregar valores por defecto para campos vacíos
+                    if not nota_completa.get('Autor'):
+                        nota_completa['Autor'] = 'Redacción'
+                    if not nota_completa.get('PUBLICACIÓN BOLETÍN'):
+                        nota_completa['PUBLICACIÓN BOLETÍN'] = 'NO'
+                    if not nota_completa.get('Tema de la nota'):
+                        nota_completa['Tema de la nota'] = 'General'
+                    
                     st.session_state.notas_capturadas.append(nota_completa)
                     st.success(f"✅ Nota {len(st.session_state.notas_capturadas)} guardada")
+                    
+                    # Limpiar nota actual (conservar configuración)
                     st.session_state.nota_actual = {}
                     st.session_state.texto_seleccionado = ""
                     st.rerun()
                 else:
-                    st.error("⚠️ El Título es obligatorio")
+                    st.error("⚠️ El Título de la nota es obligatorio")
     
     else:
         st.info("📄 Sube un archivo PDF en la barra lateral para visualizarlo y capturar notas")
@@ -507,15 +543,26 @@ with st.expander("📖 ¿Cómo usar esta herramienta?"):
     - **Pégalo** en el campo "Texto seleccionado"
     - **Presiona el botón** del campo correspondiente
     
-    **4. Campos disponibles:**
+    **4. Campos disponibles (todos tienen botón):**
     - 📌 **Título de la nota** - Campo obligatorio
     - 📝 **RESUMEN DE LA NOTA (RTP)**
-    - 📰 **MEDIOS DE COMUNICACIÓN**
+    - 📰 **MEDIOS DE COMUNICACIÓN DIGITALES**
+    - 📻 **Radio**
+    - 📺 **Televisión**
+    - 📰 **Medios Impresos**
+    - 📱 **Otros (Redes Sociales)**
     - ✍️ **Autor**
-    - 🔗 **LINK** - Clickeable
+    - 🔗 **LINK**
     - 📂 **Tema de la nota**
+    - 📄 **Publicación Boletín**
     
-    **5. Guarda y exporta:**
+    **5. Campos automáticos (sin botón):**
+    - 📅 Año, Mes, Fecha (se generan automáticamente)
+    - 🏷️ Campaña (se calcula según el tono)
+    - 📊 Tono (se selecciona en configuración)
+    - 🎯 Relevancia (se selecciona en configuración)
+    
+    **6. Guarda y exporta:**
     - Configura relevancia y tono
     - Presiona **"GUARDAR NOTA COMPLETA"**
     - Revisa todas las notas en "Tabla de Notas"
