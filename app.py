@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 import pdfplumber
 from datetime import datetime
+import base64
 import os
 
 # Configuración de página
@@ -14,10 +15,59 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🚌 Captura de Notas - Monitoreo RTP")
-st.caption("Visualiza el PDF, copia el texto y asígnalo a los campos correspondientes.")
+# Estilos visuales mejorados
+st.markdown("""
+<style>
+    .pdf-container {
+        width: 100%;
+        height: 650px;
+        border: 2px solid #dee2e6;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #f8f9fa;
+        position: relative;
+    }
+    .pdf-container iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: white;
+    }
+    
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .stTabs [data-baseweb="tab"] { border-radius: 8px 8px 0px 0px; padding: 12px 20px; background-color: #f0f2f6; font-weight: bold; }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] { background-color: #007bff; color: white; }
+    
+    /* Estilo para el visor PDF */
+    .pdf-viewer-wrapper {
+        width: 100%;
+        height: 700px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid #dee2e6;
+    }
+    .pdf-viewer-wrapper iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+    .pdf-header {
+        background: white;
+        padding: 15px 20px;
+        border-radius: 8px 8px 0 0;
+        border-bottom: 1px solid #e9ecef;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# Columnas oficiales alineadas al Excel
+st.title("🚌 Captura de Notas - Monitoreo RTP")
+st.caption("Abre el PDF, copia el texto y asígnalo a cada campo con los botones")
+
+# Columnas oficiales
 OFFICIAL_COLUMNS = [
     'Año', '# Mes', 'Mes', 'Fecha ',
     'Título de la nota',
@@ -40,6 +90,27 @@ def map_campana(sentiment):
     if sentiment == "Positivo":
         return "RTP avanza"
     return "RTP informa"
+
+def get_pdf_base64(pdf_bytes):
+    """Convierte PDF a base64 para incrustar en HTML"""
+    return base64.b64encode(pdf_bytes).decode('utf-8')
+
+def get_pdf_viewer_html(pdf_base64, filename):
+    """Genera HTML para visualizar PDF"""
+    return f"""
+    <div class="pdf-viewer-wrapper">
+        <iframe 
+            src="data:application/pdf;base64,{pdf_base64}#toolbar=1&navpanes=1&scrollbar=1&view=FitH"
+            title="Visor PDF"
+            style="width:100%; height:100%; border:none; background:white;"
+        >
+            <p>Tu navegador no soporta la visualización de PDFs.</p>
+            <a href="data:application/pdf;base64,{pdf_base64}" download="{filename}">
+                Descargar PDF
+            </a>
+        </iframe>
+    </div>
+    """
 
 # --- INICIALIZAR SESSION STATE ---
 if 'notas_capturadas' not in st.session_state:
@@ -81,139 +152,209 @@ if uploaded_file:
             df_existente = pd.read_excel(uploaded_file, sheet_name=sheet)
             st.sidebar.success(f"✅ Excel cargado: {len(df_existente)} notas")
             if not df_existente.empty:
-                st.session_state.notas_capturadas = df_existente.to_dict('records')
+                for _, row in df_existente.iterrows():
+                    nota = {col: row[col] for col in OFFICIAL_COLUMNS if col in df_existente.columns}
+                    st.session_state.notas_capturadas.append(nota)
         except Exception as e:
             st.sidebar.error(f"❌ Error: {e}")
     
     elif ext == "pdf":
-        st.session_state.pdf_bytes = uploaded_file.getvalue()
+        # Guardar el PDF en session state
+        pdf_bytes = uploaded_file.getvalue()
+        st.session_state.pdf_bytes = pdf_bytes
         st.session_state.pdf_filename = uploaded_file.name
         st.sidebar.success(f"✅ PDF cargado: {uploaded_file.name}")
 
 # --- INTERFAZ PRINCIPAL ---
+# TABS principales
 tab1, tab2, tab3, tab4 = st.tabs(["📄 Visualizar PDF y Capturar", "📋 Tabla de Notas", "📊 Gráficas", "📥 Exportar"])
 
 # --- TAB 1: VISUALIZAR PDF Y CAPTURAR ---
 with tab1:
     if st.session_state.pdf_bytes:
         
-        st.subheader("📄 Visor de PDF")
+        st.markdown("### 📄 PDF Original")
+        st.markdown("**💡 Instrucción:** Selecciona y copia texto del PDF, pégalo en el campo de abajo, luego presiona el botón del campo correspondiente")
         
-        # Renderizado de páginas del PDF como imagen con pdfplumber
-        col_pdf, col_captura = st.columns([1, 1])
+        # Convertir PDF a base64 para incrustar
+        pdf_base64 = get_pdf_base64(st.session_state.pdf_bytes)
         
-        with col_pdf:
-            st.write(f"**Archivo:** {st.session_state.pdf_filename}")
+        # Mostrar PDF
+        st.markdown('<div class="pdf-header"><span>📄 {}</span></div>'.format(st.session_state.pdf_filename), unsafe_allow_html=True)
+        pdf_html = get_pdf_viewer_html(pdf_base64, st.session_state.pdf_filename)
+        st.markdown(pdf_html, unsafe_allow_html=True)
+        
+        # Botón para descargar el PDF
+        col_pdf1, col_pdf2, col_pdf3 = st.columns([1, 1, 1])
+        with col_pdf2:
             st.download_button(
-                label="📥 Descargar PDF original",
+                label="📄 Descargar PDF original",
                 data=st.session_state.pdf_bytes,
                 file_name=st.session_state.pdf_filename,
                 mime="application/pdf",
                 use_container_width=True
             )
+        
+        st.markdown("---")
+        
+        # Área de captura - Sin colores en los botones
+        col_texto, col_botones = st.columns([1, 1])
+        
+        with col_texto:
+            st.markdown("### 📝 Texto seleccionado")
             
-            with pdfplumber.open(io.BytesIO(st.session_state.pdf_bytes)) as pdf:
-                num_pages = len(pdf.pages)
-                page_num = st.number_input("Página:", min_value=1, max_value=num_pages, value=1)
-                
-                # Renderizar la página seleccionada a imagen
-                page = pdf.pages[page_num - 1]
-                pix = page.to_image(resolution=150)
-                img_bytes = io.BytesIO()
-                pix.save(img_bytes, format="PNG")
-                st.image(img_bytes.getvalue(), caption=f"Página {page_num} de {num_pages}", use_column_width=True)
-                
-                # Extraer texto de la página por si se prefiere copiar directo
-                with st.expander("📄 Ver texto extraído de esta página"):
-                    st.text_area("Texto detectado:", value=page.extract_text() or "", height=200)
-
-        with col_captura:
-            st.subheader("📝 Captura de Datos")
+            st.info("📋 **Instrucciones:**\n1. Selecciona texto en el PDF de la izquierda\n2. Cópialo (Ctrl+C o Cmd+C)\n3. Pégalo aquí abajo\n4. Presiona el botón del campo correspondiente")
             
-            # Campo para pegar el texto copiado
             texto_pegado = st.text_area(
-                "Pega aquí el texto que copiaste del PDF:",
+                "Pega aquí el texto que copiaste del PDF",
                 value=st.session_state.texto_seleccionado,
-                height=120,
-                placeholder="Pega el texto aquí..."
+                height=150,
+                placeholder="Ejemplo: 'RTP que fue transformado en Papamóvil...'",
+                key="texto_pegado_input",
+                label_visibility="collapsed"
             )
-            st.session_state.texto_seleccionado = texto_pegado
-
-            st.write("### Asignar texto a columna:")
             
-            # Botones estándar por columna (sin colores CSS)
-            col_b1, col_b2 = st.columns(2)
+            if texto_pegado != st.session_state.texto_seleccionado:
+                st.session_state.texto_seleccionado = texto_pegado
             
-            with col_b1:
-                if st.button("📌 Título de la nota", use_container_width=True):
+            # Mostrar el texto actual asignado
+            if st.session_state.nota_actual:
+                st.markdown("#### 📋 Campos asignados en esta nota:")
+                campos_info = []
+                if st.session_state.nota_actual.get('titulo'):
+                    campos_info.append(f"✅ Título: {st.session_state.nota_actual['titulo'][:50]}...")
+                if st.session_state.nota_actual.get('resumen'):
+                    campos_info.append(f"✅ Resumen: {st.session_state.nota_actual['resumen'][:50]}...")
+                if st.session_state.nota_actual.get('medio'):
+                    campos_info.append(f"✅ Medio: {st.session_state.nota_actual['medio']}")
+                if st.session_state.nota_actual.get('autor'):
+                    campos_info.append(f"✅ Autor: {st.session_state.nota_actual['autor']}")
+                if st.session_state.nota_actual.get('link'):
+                    campos_info.append(f"✅ Link: {st.session_state.nota_actual['link'][:50]}...")
+                if st.session_state.nota_actual.get('tema'):
+                    campos_info.append(f"✅ Tema: {st.session_state.nota_actual['tema']}")
+                
+                if campos_info:
+                    for info in campos_info:
+                        st.text(info)
+                else:
+                    st.info("⬜ Ningún campo asignado aún")
+        
+        with col_botones:
+            st.markdown("### 🎯 Asignar a campo")
+            st.markdown("**Presiona el botón del campo donde quieras guardar el texto**")
+            
+            # Botones en el orden del Excel SIN COLORES
+            col_btn1, col_btn2 = st.columns(2)
+            
+            with col_btn1:
+                # Título
+                if st.button("📌 Título de la nota", use_container_width=True, key="btn_titulo"):
                     if st.session_state.texto_seleccionado.strip():
                         st.session_state.nota_actual['titulo'] = st.session_state.texto_seleccionado.strip()
-                        st.success("Asignado a Título")
+                        st.success("✅ Asignado a Título")
                         st.session_state.texto_seleccionado = ""
                         st.rerun()
-
-                if st.button("📝 RESUMEN DE LA NOTA (RTP)", use_container_width=True):
+                    else:
+                        st.warning("⚠️ Primero copia y pega texto del PDF")
+                
+                # Resumen
+                if st.button("📝 RESUMEN DE LA NOTA (RTP)", use_container_width=True, key="btn_resumen"):
                     if st.session_state.texto_seleccionado.strip():
                         st.session_state.nota_actual['resumen'] = st.session_state.texto_seleccionado.strip()
-                        st.success("Asignado a Resumen")
+                        st.success("✅ Asignado a Resumen")
                         st.session_state.texto_seleccionado = ""
                         st.rerun()
-
-                if st.button("📰 MEDIOS DE COMUNICACIÓN", use_container_width=True):
+                    else:
+                        st.warning("⚠️ Primero copia y pega texto del PDF")
+                
+                # Medio
+                if st.button("📰 MEDIOS DE COMUNICACIÓN", use_container_width=True, key="btn_medio"):
                     if st.session_state.texto_seleccionado.strip():
                         st.session_state.nota_actual['medio'] = st.session_state.texto_seleccionado.strip()
-                        st.success("Asignado a Medio")
+                        st.success("✅ Asignado a Medio")
                         st.session_state.texto_seleccionado = ""
                         st.rerun()
-
-            with col_b2:
-                if st.button("✍️ Autor", use_container_width=True):
+                    else:
+                        st.warning("⚠️ Primero copia y pega texto del PDF")
+            
+            with col_btn2:
+                # Autor
+                if st.button("✍️ Autor", use_container_width=True, key="btn_autor"):
                     if st.session_state.texto_seleccionado.strip():
                         st.session_state.nota_actual['autor'] = st.session_state.texto_seleccionado.strip()
-                        st.success("Asignado a Autor")
+                        st.success("✅ Asignado a Autor")
                         st.session_state.texto_seleccionado = ""
                         st.rerun()
-
-                if st.button("🔗 LINK", use_container_width=True):
+                    else:
+                        st.warning("⚠️ Primero copia y pega texto del PDF")
+                
+                # Link
+                if st.button("🔗 LINK", use_container_width=True, key="btn_link"):
                     if st.session_state.texto_seleccionado.strip():
                         st.session_state.nota_actual['link'] = st.session_state.texto_seleccionado.strip()
-                        st.success("Asignado a Link")
+                        st.success("✅ Asignado a Link")
                         st.session_state.texto_seleccionado = ""
                         st.rerun()
-
-                if st.button("📂 Tema de la nota", use_container_width=True):
+                    else:
+                        st.warning("⚠️ Primero copia y pega texto del PDF")
+                
+                # Tema
+                if st.button("📂 Tema de la nota", use_container_width=True, key="btn_tema"):
                     if st.session_state.texto_seleccionado.strip():
                         st.session_state.nota_actual['tema'] = st.session_state.texto_seleccionado.strip()
-                        st.success("Asignado a Tema")
+                        st.success("✅ Asignado a Tema")
                         st.session_state.texto_seleccionado = ""
                         st.rerun()
-
-            # Estado actual de los campos asignados
-            st.write("---")
-            st.write("**Campos capturados actualmente:**")
-            st.json(st.session_state.nota_actual if st.session_state.nota_actual else {"Estado": "Vacío"})
-
-            # Configuración
-            col_c1, col_c2 = st.columns(2)
-            with col_c1:
-                relevancia = st.selectbox("¿Es relevante para RTP?", ["Sí", "No"], index=0)
-            with col_c2:
-                tono = st.selectbox("Tono de la nota", ["Informativo", "Positivo", "Negativo"], index=0)
-
-            # Botón Guardar
-            if st.button("💾 GUARDAR NOTA COMPLETA", use_container_width=True):
+                    else:
+                        st.warning("⚠️ Primero copia y pega texto del PDF")
+        
+        # Configuración adicional
+        st.markdown("---")
+        st.markdown("### ⚙️ Configuración de la nota")
+        
+        col_config1, col_config2, col_config3 = st.columns(3)
+        
+        with col_config1:
+            relevancia = st.selectbox(
+                "🎯 ¿Es relevante para RTP?",
+                ["Sí", "No"],
+                index=0 if st.session_state.relevancia_seleccionada == "Sí" else 1,
+                key="select_relevancia"
+            )
+            st.session_state.relevancia_seleccionada = relevancia
+        
+        with col_config2:
+            tono = st.selectbox(
+                "🎯 Tono de la nota",
+                ["Informativo", "Positivo", "Negativo"],
+                index=["Informativo", "Positivo", "Negativo"].index(st.session_state.tono_seleccionado),
+                key="select_tono"
+            )
+            st.session_state.tono_seleccionado = tono
+        
+        with col_config3:
+            if st.session_state.nota_actual.get('link') and st.session_state.nota_actual['link'].startswith('http'):
+                st.markdown(f'🔗 <a href="{st.session_state.nota_actual["link"]}" target="_blank">Abrir link</a>', unsafe_allow_html=True)
+        
+        # Botón guardar
+        st.markdown("---")
+        col_guardar1, col_guardar2, col_guardar3 = st.columns([1, 2, 1])
+        with col_guardar2:
+            if st.button("💾 GUARDAR NOTA COMPLETA", use_container_width=True, key="btn_guardar_completa"):
                 if st.session_state.nota_actual.get('titulo'):
                     today = datetime.now()
                     medio = st.session_state.nota_actual.get('medio', '')
                     
+                    # Determinar tipo de medio según el texto
                     tipo_medio = 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *'
-                    if any(x in medio.lower() for x in ['radio', 'fm']):
+                    if any(x in medio.lower() for x in ['radio', 'fm', 'am']):
                         tipo_medio = 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * '
-                    elif any(x in medio.lower() for x in ['tv', 'canal', 'televisa']):
+                    elif any(x in medio.lower() for x in ['tv', 'canal', 'televisa', 'televisión']):
                         tipo_medio = 'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *'
-                    elif any(x in medio.lower() for x in ['twitter', 'facebook', 'youtube']):
+                    elif any(x in medio.lower() for x in ['twitter', 'facebook', 'youtube', 'instagram']):
                         tipo_medio = 'OTROS (Twitter, Facebook, You Tube, etc.).'
-
+                    
                     nota_completa = {
                         'Año': today.year,
                         '# Mes': today.month,
@@ -223,11 +364,11 @@ with tab1:
                         'RTP, ¿Es relevante en la nota?': relevancia,
                         'Tema de la nota': st.session_state.nota_actual.get('tema', 'General'),
                         'Campaña': map_campana(tono),
-                        'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ': medio if tipo_medio == 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ' else None,
-                        'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *': medio if tipo_medio == 'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *' else None,
-                        'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *': medio if tipo_medio == 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *' else None,
-                        'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *': medio if tipo_medio == 'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *' else None,
-                        'OTROS (Twitter, Facebook, You Tube, etc.).': medio if tipo_medio == 'OTROS (Twitter, Facebook, You Tube, etc.).' else None,
+                        'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ': medio if tipo_medio == 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ' else '',
+                        'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *': medio if tipo_medio == 'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *' else '',
+                        'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *': medio if tipo_medio == 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *' else '',
+                        'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *': medio if tipo_medio == 'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *' else '',
+                        'OTROS (Twitter, Facebook, You Tube, etc.).': medio if tipo_medio == 'OTROS (Twitter, Facebook, You Tube, etc.).' else '',
                         'Informativo / Positivo/ Negativo': tono,
                         'LINK': st.session_state.nota_actual.get('link', ''),
                         'Autor': st.session_state.nota_actual.get('autor', 'Redacción'),
@@ -235,66 +376,171 @@ with tab1:
                         'RESUMEN  DE LA NOTA (RTP)': st.session_state.nota_actual.get('resumen', '')
                     }
                     st.session_state.notas_capturadas.append(nota_completa)
-                    st.success(f"✅ Nota guardada exitosamente (Total: {len(st.session_state.notas_capturadas)})")
+                    st.success(f"✅ Nota {len(st.session_state.notas_capturadas)} guardada")
+                    # Limpiar nota actual
                     st.session_state.nota_actual = {}
                     st.session_state.texto_seleccionado = ""
                     st.rerun()
                 else:
-                    st.error("⚠️ El Título es obligatorio para guardar")
-
+                    st.error("⚠️ El Título es obligatorio")
+    
     else:
-        st.info("📄 Sube un archivo PDF en la barra lateral para comenzar.")
+        st.info("📄 Sube un archivo PDF en la barra lateral para visualizarlo y capturar notas")
+        st.markdown("""
+        ### 📖 ¿Cómo empezar?
+        
+        1. **Sube un PDF** en la barra lateral izquierda
+        2. El PDF se mostrará aquí mismo
+        3. **Selecciona y copia** el texto que necesites
+        4. **Pégalo** en el campo de texto
+        5. **Presiona el botón** del campo correspondiente
+        6. **Guarda** la nota completa
+        """)
 
 # --- TAB 2: TABLA DE NOTAS ---
 with tab2:
     st.subheader("📋 Tabla de Notas Capturadas")
     if st.session_state.notas_capturadas:
         df_show = pd.DataFrame(st.session_state.notas_capturadas)
-        cols_to_display = [c for c in OFFICIAL_COLUMNS if c in df_show.columns]
-        st.dataframe(df_show[cols_to_display], use_container_width=True, height=500)
+        # Mostrar solo las columnas que existen
+        columns_to_show = [col for col in OFFICIAL_COLUMNS if col in df_show.columns]
+        st.dataframe(df_show[columns_to_show], use_container_width=True, height=500)
+        
+        st.markdown("### 📊 Estadísticas")
+        col_est1, col_est2, col_est3, col_est4 = st.columns(4)
+        col_est1.metric("Total Notas", len(df_show))
+        col_est2.metric("Positivas", len(df_show[df_show['Informativo / Positivo/ Negativo'] == 'Positivo']) if 'Informativo / Positivo/ Negativo' in df_show.columns else 0)
+        col_est3.metric("Informativas", len(df_show[df_show['Informativo / Positivo/ Negativo'] == 'Informativo']) if 'Informativo / Positivo/ Negativo' in df_show.columns else 0)
+        col_est4.metric("Negativas", len(df_show[df_show['Informativo / Positivo/ Negativo'] == 'Negativo']) if 'Informativo / Positivo/ Negativo' in df_show.columns else 0)
     else:
-        st.info("No hay notas capturadas aún.")
+        st.info("No hay notas capturadas aún")
 
 # --- TAB 3: GRÁFICAS ---
 with tab3:
     st.subheader("📊 Análisis Gráfico")
     if st.session_state.notas_capturadas:
         df_graph = pd.DataFrame(st.session_state.notas_capturadas)
+        
         col_g1, col_g2 = st.columns(2)
         
         with col_g1:
             if 'Informativo / Positivo/ Negativo' in df_graph.columns:
-                fig_tono = px.pie(df_graph, names='Informativo / Positivo/ Negativo', title="Distribución por Tono", hole=0.3)
+                fig_tono = px.pie(
+                    df_graph,
+                    names='Informativo / Positivo/ Negativo',
+                    title="Distribución por Tono",
+                    color='Informativo / Positivo/ Negativo',
+                    color_discrete_map={'Positivo': '#28a745', 'Informativo': '#ffc107', 'Negativo': '#dc3545'},
+                    hole=0.4
+                )
                 st.plotly_chart(fig_tono, use_container_width=True)
         
         with col_g2:
             if 'Campaña' in df_graph.columns:
-                fig_campana = px.pie(df_graph, names='Campaña', title="Distribución por Campaña")
+                df_graph['Campaña'] = df_graph['Campaña'].fillna('RTP informa')
+                fig_campana = px.pie(
+                    df_graph,
+                    names='Campaña',
+                    title="Distribución por Campaña",
+                    color_discrete_sequence=['#007bff', '#6c757d']
+                )
                 st.plotly_chart(fig_campana, use_container_width=True)
+        
+        # Gráfica de relevancia
+        if 'RTP, ¿Es relevante en la nota?' in df_graph.columns:
+            fig_relevancia = px.bar(
+                df_graph,
+                x='RTP, ¿Es relevante en la nota?',
+                title="Relevancia para RTP",
+                color='RTP, ¿Es relevante en la nota?',
+                color_discrete_map={'Sí': '#28a745', 'No': '#dc3545'}
+            )
+            st.plotly_chart(fig_relevancia, use_container_width=True)
+        
+        # Gráfica de temas
+        if 'Tema de la nota' in df_graph.columns:
+            temas_counts = df_graph['Tema de la nota'].value_counts().reset_index()
+            temas_counts.columns = ['Tema', 'Cantidad']
+            fig_temas = px.bar(
+                temas_counts.head(10),
+                x='Tema',
+                y='Cantidad',
+                title="Top 10 Temas",
+                color='Cantidad',
+                color_continuous_scale='Blues'
+            )
+            st.plotly_chart(fig_temas, use_container_width=True)
     else:
-        st.info("No hay datos para generar gráficas.")
+        st.info("No hay suficientes datos para mostrar gráficas")
 
 # --- TAB 4: EXPORTAR ---
 with tab4:
     st.subheader("📥 Exportar a Excel")
+    
     if st.session_state.notas_capturadas:
         df_export = pd.DataFrame(st.session_state.notas_capturadas)
         
-        # Garantizar que todas las columnas oficiales existan en la exportación
-        for col in OFFICIAL_COLUMNS:
-            if col not in df_export.columns:
-                df_export[col] = None
-                
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df_export[OFFICIAL_COLUMNS].to_excel(writer, sheet_name="Seguimiento_Medios", index=False)
+        st.markdown("### Vista previa de datos a exportar")
+        columns_to_show = [col for col in OFFICIAL_COLUMNS if col in df_export.columns]
+        st.dataframe(df_export[columns_to_show].head(10), use_container_width=True)
         
-        st.download_button(
-            label="📥 Descargar Excel (.xlsx)",
-            data=output.getvalue(),
-            file_name=f"Seguimiento_RTP_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+        st.markdown("---")
+        st.markdown("### 📥 Descargar archivo Excel")
+        
+        col_exp1, col_exp2, col_exp3 = st.columns([1, 2, 1])
+        with col_exp2:
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                df_export[columns_to_show].to_excel(writer, sheet_name="Seguimiento_Medios", index=False)
+            
+            st.download_button(
+                label="📥 DESCARGAR EXCEL",
+                data=output.getvalue(),
+                file_name=f"Seguimiento_RTP_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="btn_descarga_grande"
+            )
+            st.caption(f"📊 {len(st.session_state.notas_capturadas)} notas listas para exportar")
+        
+        st.markdown("---")
+        st.markdown("### 📋 Resumen de exportación")
+        col_r1, col_r2, col_r3 = st.columns(3)
+        col_r1.metric("Total Notas", len(df_export))
+        col_r2.metric("Columnas", len(columns_to_show))
+        col_r3.metric("Formato", "Excel (.xlsx)")
     else:
-        st.info("No hay notas capturadas para exportar.")
+        st.info("No hay notas para exportar")
+
+# --- INSTRUCCIONES ---
+with st.expander("📖 ¿Cómo usar esta herramienta?"):
+    st.markdown("""
+    ### 📊 Sistema de Captura de Notas RTP
+    
+    **1. Carga un archivo PDF** en la barra lateral
+    
+    **2. Visualiza el PDF:**
+    - El PDF se muestra completo en la pestaña principal
+    - Puedes hacer scroll, zoom y seleccionar texto directamente
+    
+    **3. Captura el texto:**
+    - **Selecciona** el texto en el PDF (con el mouse)
+    - **Cópialo** (Ctrl+C o Cmd+C)
+    - **Pégalo** en el campo "Texto seleccionado"
+    - **Presiona el botón** del campo correspondiente
+    
+    **4. Campos disponibles:**
+    - 📌 **Título de la nota** - Campo obligatorio
+    - 📝 **RESUMEN DE LA NOTA (RTP)**
+    - 📰 **MEDIOS DE COMUNICACIÓN**
+    - ✍️ **Autor**
+    - 🔗 **LINK** - Clickeable
+    - 📂 **Tema de la nota**
+    
+    **5. Guarda y exporta:**
+    - Configura relevancia y tono
+    - Presiona **"GUARDAR NOTA COMPLETA"**
+    - Revisa todas las notas en "Tabla de Notas"
+    - Analiza en "Gráficas"
+    - Descarga el Excel con el botón grande
+    """)
