@@ -1,17 +1,14 @@
 import io
 import re
-import os
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import pdfplumber
-import google.generativeai as genai
 from datetime import datetime
-import json
 
 # Configuración de página
 st.set_page_config(
-    page_title="Sistema de Monitoreo en Medios - RTP",
+    page_title="Monitoreo RTP - Captura de Notas",
     page_icon="🚌",
     layout="wide"
 )
@@ -22,16 +19,21 @@ st.markdown("""
     .badge-positivo { background-color: #28a745; color: white; padding: 4px 10px; border-radius: 5px; font-weight: bold; }
     .badge-informativo { background-color: #ffc107; color: black; padding: 4px 10px; border-radius: 5px; font-weight: bold; }
     .badge-negativo { background-color: #dc3545; color: white; padding: 4px 10px; border-radius: 5px; font-weight: bold; }
+    .campo-titulo { background-color: #cce5ff; border-left: 4px solid #007bff; padding: 8px; margin: 4px 0; }
+    .campo-resumen { background-color: #d4edda; border-left: 4px solid #28a745; padding: 8px; margin: 4px 0; }
+    .campo-medio { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 8px; margin: 4px 0; }
+    .campo-autor { background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 8px; margin: 4px 0; }
+    .campo-link { background-color: #d1ecf1; border-left: 4px solid #17a2b8; padding: 8px; margin: 4px 0; }
+    .campo-tema { background-color: #e8d5f5; border-left: 4px solid #6f42c1; padding: 8px; margin: 4px 0; }
     .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     .stTabs [data-baseweb="tab"] { border-radius: 4px 4px 0px 0px; padding: 10px 16px; background-color: #f0f2f6; }
-    .edit-box { background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 5px; padding: 15px; margin: 10px 0; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🚌 Monitoreo y Seguimiento en Medios - RTP")
-st.caption("Procesamiento inteligente con IA para síntesis informativas, PDFs y reportes Excel.")
+st.title("🚌 Captura de Notas - Monitoreo RTP")
+st.caption("Selecciona el texto del PDF y asígnalo a cada campo de la nota")
 
-# Columnas oficiales
+# Columnas oficiales (18 columnas)
 OFFICIAL_COLUMNS = [
     'Año', '# Mes', 'Mes', 'Fecha ',
     'Título de la nota',
@@ -50,23 +52,6 @@ OFFICIAL_COLUMNS = [
     'RESUMEN  DE LA NOTA (RTP)'
 ]
 
-# Configuración de IA Gemini
-st.sidebar.header("🤖 Configuración de IA (Gemini)")
-api_key = st.sidebar.text_input("Gemini API Key:", type="password")
-use_ai = False
-model = None
-
-if api_key:
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        use_ai = True
-        st.sidebar.success("✅ IA Gemini Activada")
-    except Exception as e:
-        st.sidebar.error(f"⚠️ Error: {e}")
-else:
-    st.sidebar.warning("⚠️ Sin IA - Extracción por reglas")
-
 def clean_sentiment(val):
     if pd.isna(val):
         return "Informativo"
@@ -82,470 +67,471 @@ def map_campana(sentiment):
         return "RTP avanza"
     return "RTP informa"
 
-def clean_title(title):
-    """Limpia títulos que tienen fechas pegadas"""
-    if not title:
-        return "Sin título"
-    # Eliminar fechas al inicio (ej: "2026-08-20 Notas de ayer" -> "Notas de ayer")
-    title = re.sub(r'^\d{4}-\d{2}-\d{2}\s*', '', title)
-    # Eliminar números de página
-    title = re.sub(r'^\d+\s*', '', title)
-    # Eliminar "Notas de ayer" si es un encabezado
-    if title.strip().upper() == "NOTAS DE AYER":
-        return None
-    return title.strip()
-
-def extract_notes_with_ai(text, model):
-    """Extrae notas usando IA con un prompt específico para el formato"""
-    if not model:
-        return None
-    
-    prompt = f"""
-    Analiza el siguiente texto de una SÍNTESIS INFORMATIVA de la RTP.
-    
-    TEXTO:
-    {text[:4000]}
-    
-    Este texto contiene varias notas periodísticas. Cada nota típicamente tiene:
-    1. Un TÍTULO en negritas o mayúsculas (ej: "Mujeres conductoras marcan ruta en la CDMX")
-    2. Una mención al MEDIO (ej: "Medio: El Heraldo" o "MEDIOS: El Universal")
-    3. Un CONTENIDO/RESUMEN de la nota
-    4. Posiblemente un AUTOR y un LINK
-    
-    IMPORTANTE: 
-    - NO incluyas "Notas de ayer" como título
-    - NO incluyas fechas en el título
-    - El título debe ser el encabezado REAL de la nota
-    
-    Para CADA nota, extrae:
-    {{
-        "titulo": "El título real de la nota",
-        "resumen": "El contenido de la nota (máximo 300 palabras)",
-        "medio": "El nombre del medio",
-        "autor": "El autor si aparece",
-        "link": "URL si aparece",
-        "tono": "Positivo, Negativo o Informativo"
-    }}
-    
-    Responde SOLO con un JSON array de notas.
-    Si solo hay una nota, devuelve un array con un solo elemento.
-    """
-    
-    try:
-        response = model.generate_content(prompt)
-        response_text = response.text
-        
-        # Extraer JSON
-        json_match = re.search(r'\[\s*\{.*\}\s*\]', response_text, re.DOTALL)
-        if json_match:
-            try:
-                return json.loads(json_match.group())
-            except:
-                pass
-        
-        # Intentar extraer objetos individuales
-        json_objects = re.findall(r'\{[^{}]*\}', response_text)
-        if json_objects:
-            results = []
-            for obj in json_objects:
-                try:
-                    results.append(json.loads(obj))
-                except:
-                    pass
-            if results:
-                return results
-        
-        return None
-    except Exception as e:
-        st.warning(f"⚠️ Error en IA: {e}")
-        return None
-
-def extract_notes_manually(text):
-    """Extrae notas manualmente sin IA"""
-    notes = []
-    lines = text.split('\n')
-    
-    current_note = {}
-    buffer = []
-    in_note = False
-    
-    # Patrones para identificar elementos
-    title_pattern = r'^[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{5,}$|^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){2,}'
-    media_pattern = r'MEDIOS?:\s*(.+)'
-    autor_pattern = r'(?:Autor|Por|Redacción)[:\s]+(.+)'
-    link_pattern = r'https?://[^\s]+'
-    
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        
-        if not line:
-            i += 1
-            continue
-        
-        # Saltar encabezados de sección
-        if any(x in line.upper() for x in ['SÍNTESIS INFORMATIVA', 'NOTAS DE MOVILIDAD', 'RED DE TRANSPORTE']):
-            i += 1
-            continue
-        
-        # Detectar título (línea en mayúsculas o con formato de título)
-        if re.match(title_pattern, line) and len(line) < 100:
-            # Guardar nota anterior
-            if current_note and buffer:
-                current_note['resumen'] = '\n'.join(buffer)[:500]
-                notes.append(current_note)
-            
-            # Iniciar nueva nota
-            current_note = {'titulo': line}
-            buffer = []
-            in_note = True
-            i += 1
-            continue
-        
-        # Detectar medio
-        media_match = re.search(media_pattern, line, re.IGNORECASE)
-        if media_match and current_note:
-            current_note['medio'] = media_match.group(1).strip()
-            i += 1
-            continue
-        
-        # Detectar autor
-        autor_match = re.search(autor_pattern, line, re.IGNORECASE)
-        if autor_match and current_note:
-            current_note['autor'] = autor_match.group(1).strip()
-            i += 1
-            continue
-        
-        # Detectar link
-        link_match = re.search(link_pattern, line)
-        if link_match and current_note:
-            current_note['link'] = link_match.group(0)
-            i += 1
-            continue
-        
-        # Si estamos en una nota, agregar al buffer
-        if in_note and line and len(line) > 5:
-            buffer.append(line)
-        
-        i += 1
-    
-    # Guardar última nota
-    if current_note and buffer:
-        current_note['resumen'] = '\n'.join(buffer)[:500]
-        # Limpiar título
-        if current_note.get('titulo'):
-            clean = clean_title(current_note['titulo'])
-            if clean:
-                current_note['titulo'] = clean
-                notes.append(current_note)
-    
-    return notes
-
-def process_pdf_file(pdf_file, model):
-    """Procesa archivo PDF"""
-    # Extraer texto
+def extract_pdf_text(pdf_file):
+    """Extrae todo el texto del PDF"""
     full_text = ""
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             text = page.extract_text() or ""
             full_text += text + "\n"
-    
-    if not full_text.strip():
-        st.error("❌ No se pudo extraer texto del PDF")
-        return pd.DataFrame()
-    
-    # Mostrar vista previa
-    with st.expander("📄 Vista previa del texto extraído"):
-        st.text(full_text[:2000])
-        st.caption(f"Total: {len(full_text)} caracteres")
-    
-    # Intentar extraer con IA primero
-    notes = []
-    if model:
-        with st.spinner("🧠 Analizando con IA..."):
-            ai_notes = extract_notes_with_ai(full_text, model)
-            if ai_notes:
-                notes = ai_notes
-                st.success(f"✅ IA extrajo {len(notes)} notas")
-    
-    # Si no hay notas de IA, usar método manual
-    if not notes:
-        with st.spinner("📋 Extrayendo manualmente..."):
-            notes = extract_notes_manually(full_text)
-            if notes:
-                st.info(f"📋 Extracción manual: {len(notes)} notas")
-    
-    if not notes:
-        st.warning("⚠️ No se encontraron notas en el PDF")
-        return pd.DataFrame()
-    
-    # Mostrar resultados crudos
-    with st.expander("📋 Resultados extraídos"):
-        st.json(notes[:3])
-    
-    # Convertir a DataFrame
-    records = []
-    today = datetime.now()
-    
-    for note in notes:
-        titulo = clean_title(note.get('titulo', 'Sin título'))
-        if not titulo:  # Saltar si el título es inválido
-            continue
-            
-        resumen = note.get('resumen', '')
-        medio = note.get('medio', '')
-        tono = note.get('tono', 'Informativo')
-        autor = note.get('autor', 'Redacción')
-        link = note.get('link', '')
-        
-        # Determinar relevancia
-        texto_completo = (titulo + " " + resumen).lower()
-        relevante = "Sí" if 'rtp' in texto_completo else "No"
-        
-        # Clasificar medio
-        medio_lower = medio.lower()
-        if any(x in medio_lower for x in ['twitter', 'x.com', 'facebook', 'youtube']):
-            medio_col = 'OTROS (Twitter, Facebook, You Tube, etc.).'
-        elif any(x in medio_lower for x in ['radio', 'fm']):
-            medio_col = 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * '
-        elif any(x in medio_lower for x in ['tv', 'canal', 'televisa']):
-            medio_col = 'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *'
-        elif any(x in medio_lower for x in ['.com', 'portal', 'digital', 'noticias']):
-            medio_col = 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *'
-        else:
-            medio_col = 'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *'
-        
-        record = {
-            'Año': today.year,
-            '# Mes': today.month,
-            'Mes': today.strftime("%B").capitalize(),
-            'Fecha ': today.strftime("%Y-%m-%d"),
-            'Título de la nota': titulo,
-            'RTP, ¿Es relevante en la nota?': relevante,
-            'Tema de la nota': titulo[:80],
-            'Campaña': map_campana(tono),
-            'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ': medio if 'radio' in medio_lower else None,
-            'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *': medio if any(x in medio_lower for x in ['tv', 'canal', 'televisa']) else None,
-            'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *': medio if any(x in medio_lower for x in ['.com', 'portal', 'digital']) or not medio else None,
-            'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *': medio if not any(x in medio_lower for x in ['com', 'radio', 'tv', 'twitter', 'facebook']) and medio else None,
-            'OTROS (Twitter, Facebook, You Tube, etc.).': medio if any(x in medio_lower for x in ['twitter', 'facebook', 'youtube']) else None,
-            'Informativo / Positivo/ Negativo': tono,
-            'LINK': link,
-            'Autor': autor,
-            'PUBLICACIÓN BOLETÍN': 'NO',
-            'RESUMEN  DE LA NOTA (RTP)': resumen
-        }
-        records.append(record)
-    
-    if not records:
-        st.warning("⚠️ No se pudieron procesar las notas")
-        return pd.DataFrame()
-    
-    return pd.DataFrame(records)
+    return full_text
 
-# --- PANEL LATERAL ---
+def split_into_notes(text):
+    """Divide el texto en notas individuales"""
+    notes = []
+    
+    # Método 1: Buscar "MEDIOS:" como separador
+    sections = re.split(r'(?=\n\s*MEDIOS?:)', text)
+    
+    if len(sections) > 1:
+        for section in sections:
+            if len(section.strip()) > 50:
+                notes.append(section.strip())
+    else:
+        # Método 2: Dividir por líneas en blanco
+        sections = re.split(r'\n\s*\n', text)
+        for section in sections:
+            if len(section.strip()) > 100:
+                notes.append(section.strip())
+    
+    # Si no hay secciones, tratar todo como una nota
+    if not notes and text.strip():
+        notes = [text.strip()]
+    
+    return notes
+
+def auto_detect_fields(text):
+    """Detecta automáticamente campos del texto"""
+    fields = {}
+    lines = text.split('\n')
+    
+    # Buscar título (primera línea significativa)
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # Saltar encabezados de sección
+        if any(x in line.upper() for x in ['SÍNTESIS INFORMATIVA', 'NOTAS DE MOVILIDAD', 'RED DE TRANSPORTE']):
+            continue
+        if len(line) < 100 and (line.isupper() or (line[0].isupper() and not line.endswith(('.', ':')))):
+            fields['titulo'] = line
+            break
+    
+    # Buscar medio
+    media_match = re.search(r'MEDIOS?:\s*(.+?)(?:\s*https?://|\s*$|\n)', text, re.IGNORECASE)
+    if media_match:
+        fields['medio'] = media_match.group(1).strip()
+    
+    # Buscar autor
+    autor_match = re.search(r'(?:Autor|Por|Redacción)[:\s]+(.+?)(?:\s*$|\n)', text, re.IGNORECASE)
+    if autor_match:
+        fields['autor'] = autor_match.group(1).strip()
+    
+    # Buscar link
+    link_match = re.search(r'https?://[^\s\n]+', text)
+    if link_match:
+        fields['link'] = link_match.group(0)
+    
+    # Buscar resumen (el resto del texto después del título)
+    if fields.get('titulo'):
+        text_parts = text.split(fields['titulo'])
+        if len(text_parts) > 1:
+            content = text_parts[1].strip()
+            if len(content) > 500:
+                content = content[:500] + "..."
+            fields['resumen'] = content
+    else:
+        fields['resumen'] = text[:500]
+    
+    # Detectar tono
+    text_lower = text.lower()
+    if 'positivo' in text_lower or 'avanza' in text_lower or 'éxito' in text_lower:
+        fields['tono'] = 'Positivo'
+    elif 'negativo' in text_lower or 'problema' in text_lower or 'falla' in text_lower or 'queja' in text_lower:
+        fields['tono'] = 'Negativo'
+    else:
+        fields['tono'] = 'Informativo'
+    
+    # Detectar relevancia
+    fields['relevante'] = 'Sí' if 'rtp' in text_lower else 'No'
+    
+    # Detectar tema (por palabras clave)
+    temas = {
+        'Movilidad CDMX': ['movilidad', 'transporte', 'ruta', 'recorrido', 'metro', 'metrobús'],
+        'Unidades de RTP': ['unidad', 'autobús', 'flota', 'camión', 'vehículo'],
+        'Accidentes': ['accidente', 'choque', 'atropell', 'siniestro', 'colisión'],
+        'Sindicato': ['sindicato', 'trabajador', 'huelga', 'paro', 'protesta'],
+        'Mantenimiento': ['mantenimiento', 'reparación', 'falla', 'avería', 'daño'],
+        'Seguridad': ['seguridad', 'vigilancia', 'protección', 'robo'],
+        'Nuevas rutas': ['nueva ruta', 'nuevo tramo', 'ampliación', 'prueba piloto'],
+        'Horarios': ['horario', 'puente', 'festivo', 'cierre'],
+        'Tarifas': ['tarifa', 'precio', 'costo', 'peso', 'gratuito']
+    }
+    tema_detectado = 'General'
+    for tema, keywords in temas.items():
+        if any(k in text_lower for k in keywords):
+            tema_detectado = tema
+            break
+    
+    fields['tema'] = tema_detectado
+    
+    # Detectar tipo de medio
+    if any(x in text_lower for x in ['twitter', 'x.com', 'facebook', 'youtube', 'instagram']):
+        fields['tipo_medio'] = 'OTROS (Twitter, Facebook, You Tube, etc.).'
+    elif any(x in text_lower for x in ['radio', 'fm']):
+        fields['tipo_medio'] = 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * '
+    elif any(x in text_lower for x in ['tv', 'canal', 'televisa', 'foro tv']):
+        fields['tipo_medio'] = 'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *'
+    elif any(x in text_lower for x in ['.com', 'portal', 'digital', 'noticias']):
+        fields['tipo_medio'] = 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *'
+    else:
+        fields['tipo_medio'] = 'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *'
+    
+    return fields
+
+def get_detected_value(field_name, detected_fields):
+    """Obtiene el valor detectado para un campo"""
+    mapping = {
+        'Título de la nota': 'titulo',
+        'RESUMEN  DE LA NOTA (RTP)': 'resumen',
+        'Autor': 'autor',
+        'LINK': 'link',
+        'Tema de la nota': 'tema',
+        'Informativo / Positivo/ Negativo': 'tono',
+        'RTP, ¿Es relevante en la nota?': 'relevante'
+    }
+    if field_name in mapping and mapping[field_name] in detected_fields:
+        return detected_fields[mapping[field_name]]
+    return ""
+
+# --- INICIALIZAR SESSION STATE ---
+if 'notas_capturadas' not in st.session_state:
+    st.session_state.notas_capturadas = []
+if 'nota_actual' not in st.session_state:
+    st.session_state.nota_actual = {}
+if 'indice_nota' not in st.session_state:
+    st.session_state.indice_nota = 0
+if 'notas_extraidas' not in st.session_state:
+    st.session_state.notas_extraidas = []
+
+# --- SIDEBAR ---
 st.sidebar.header("📂 Carga de Documentos")
 uploaded_file = st.sidebar.file_uploader("Sube tu archivo (Excel o PDF):", type=["xlsx", "pdf"])
 
-df = pd.DataFrame()
+st.sidebar.header("📊 Notas Capturadas")
+st.sidebar.metric("Total Notas", len(st.session_state.notas_capturadas))
 
+if st.sidebar.button("🗑️ Limpiar todas las notas"):
+    st.session_state.notas_capturadas = []
+    st.session_state.nota_actual = {}
+    st.rerun()
+
+# --- PROCESAR ARCHIVO ---
 if uploaded_file:
     ext = uploaded_file.name.split(".")[-1].lower()
-    try:
-        if ext == "xlsx":
+    
+    if ext == "xlsx":
+        try:
             xls = pd.ExcelFile(uploaded_file)
             sheet = st.sidebar.selectbox("Selecciona pestaña:", xls.sheet_names)
-            df = pd.read_excel(uploaded_file, sheet_name=sheet)
-            st.success(f"✅ Excel cargado: {len(df)} notas")
-        elif ext == "pdf":
-            if not use_ai:
-                st.info("ℹ️ Procesando con extracción manual (sin IA)")
-            with st.spinner("📄 Procesando PDF..."):
-                df = process_pdf_file(uploaded_file, model if use_ai else None)
-            if not df.empty:
-                st.success(f"✅ PDF procesado: {len(df)} notas extraídas")
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
-        import traceback
-        st.code(traceback.format_exc())
-
-# --- SECCIÓN DE EDICIÓN MANUAL ---
-st.sidebar.header("✏️ Edición Manual")
-with st.sidebar.expander("➕ Agregar nota manual"):
-    manual_titulo = st.text_input("Título:")
-    manual_resumen = st.text_area("Resumen:", height=80)
-    manual_medio = st.text_input("Medio:")
-    manual_tono = st.selectbox("Tono:", ["Informativo", "Positivo", "Negativo"], index=0)
-    manual_url = st.text_input("URL (opcional):")
-    if st.button("➕ Agregar nota"):
-        if manual_titulo:
-            new_record = {
-                'Año': datetime.now().year,
-                '# Mes': datetime.now().month,
-                'Mes': datetime.now().strftime("%B").capitalize(),
-                'Fecha ': datetime.now().strftime("%Y-%m-%d"),
-                'Título de la nota': manual_titulo,
-                'RTP, ¿Es relevante en la nota?': 'Sí' if 'rtp' in manual_titulo.lower() or 'rtp' in manual_resumen.lower() else 'No',
-                'Tema de la nota': manual_titulo[:80],
-                'Campaña': map_campana(manual_tono),
-                'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ': None,
-                'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *': None,
-                'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *': manual_medio or 'Portal Digital',
-                'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *': None,
-                'OTROS (Twitter, Facebook, You Tube, etc.).': None,
-                'Informativo / Positivo/ Negativo': manual_tono,
-                'LINK': manual_url,
-                'Autor': 'Usuario',
-                'PUBLICACIÓN BOLETÍN': 'NO',
-                'RESUMEN  DE LA NOTA (RTP)': manual_resumen
-            }
-            df = pd.concat([df, pd.DataFrame([new_record])], ignore_index=True)
-            st.success("✅ Nota manual agregada")
-            st.rerun()
-
-if not df.empty:
-    # Asegurar columnas
-    for col in OFFICIAL_COLUMNS:
-        if col not in df.columns:
-            df[col] = None
-
-    # Normalizar
-    df['Informativo / Positivo/ Negativo'] = df['Informativo / Positivo/ Negativo'].apply(clean_sentiment)
-    df['Campaña'] = df['Informativo / Positivo/ Negativo'].apply(map_campana)
-
-    if 'Fecha ' in df.columns:
-        df['Fecha_Limpia'] = pd.to_datetime(df['Fecha '], errors='coerce').dt.strftime('%Y-%m-%d')
-    else:
-        df['Fecha_Limpia'] = "Sin Fecha"
-
-    # --- MÉTRICAS ---
-    st.subheader("📌 Resumen")
-    total = len(df)
-    positivos = len(df[df['Informativo / Positivo/ Negativo'] == 'Positivo'])
-    informativos = len(df[df['Informativo / Positivo/ Negativo'] == 'Informativo'])
-    negativos = len(df[df['Informativo / Positivo/ Negativo'] == 'Negativo'])
+            df_existente = pd.read_excel(uploaded_file, sheet_name=sheet)
+            st.sidebar.success(f"✅ Excel cargado: {len(df_existente)} notas")
+            
+            # Cargar notas existentes al session state
+            if not df_existente.empty:
+                for _, row in df_existente.iterrows():
+                    nota = {col: row[col] for col in OFFICIAL_COLUMNS if col in df_existente.columns}
+                    st.session_state.notas_capturadas.append(nota)
+        except Exception as e:
+            st.sidebar.error(f"❌ Error: {e}")
     
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total de Notas", total)
-    k2.markdown(f"**🟢 Positivas**: <span class='badge-positivo'>{positivos}</span>", unsafe_allow_html=True)
-    k3.markdown(f"**🟡 Informativas**: <span class='badge-informativo'>{informativos}</span>", unsafe_allow_html=True)
-    k4.markdown(f"**🔴 Negativas**: <span class='badge-negativo'>{negativos}</span>", unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # TABS
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 Gráficas", 
-        "📋 Tabla de Registros", 
-        "📻 Análisis por Medio", 
-        "📥 Exportar"
-    ])
-
-    with tab1:
-        st.subheader("Distribución de Cobertura")
-        c1, c2 = st.columns(2)
+    elif ext == "pdf":
+        with st.spinner("📄 Extrayendo texto del PDF..."):
+            full_text = extract_pdf_text(uploaded_file)
         
-        with c1:
-            fig_pie = px.pie(
-                df, 
-                names='Informativo / Positivo/ Negativo',
-                title="Semáforo General",
-                color='Informativo / Positivo/ Negativo',
-                color_discrete_map={'Positivo': '#28a745', 'Informativo': '#ffc107', 'Negativo': '#dc3545'},
-                hole=0.4
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
-        
-        with c2:
-            campana_counts = df['Campaña'].value_counts().reset_index()
-            campana_counts.columns = ['Campaña', 'Cantidad']
-            fig_campana = px.pie(
-                campana_counts,
-                names='Campaña',
-                values='Cantidad',
-                title="Distribución por Campaña"
-            )
-            st.plotly_chart(fig_campana, use_container_width=True)
+        if full_text.strip():
+            st.sidebar.success(f"✅ PDF procesado: {len(full_text)} caracteres")
+            
+            # Dividir en notas
+            st.session_state.notas_extraidas = split_into_notes(full_text)
+            st.sidebar.info(f"📊 {len(st.session_state.notas_extraidas)} notas encontradas")
+            
+            if st.session_state.notas_extraidas and st.session_state.indice_nota < len(st.session_state.notas_extraidas):
+                # Auto detectar campos para la primera nota
+                texto_nota = st.session_state.notas_extraidas[st.session_state.indice_nota]
+                campos_detectados = auto_detect_fields(texto_nota)
+                st.session_state.nota_actual = campos_detectados
+                st.session_state.nota_actual['texto_original'] = texto_nota
 
-    with tab2:
-        st.subheader("Registros de Monitoreo")
-        st.dataframe(df[OFFICIAL_COLUMNS], use_container_width=True, height=500)
+# --- INTERFAZ PRINCIPAL ---
+st.subheader("✏️ Captura de Nota")
 
-    with tab3:
-        st.subheader("Análisis por Medio")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            df_rel = df['RTP, ¿Es relevante en la nota?'].value_counts().reset_index()
-            df_rel.columns = ['Relevancia', 'Cantidad']
-            if not df_rel.empty:
-                fig_rel = px.bar(
-                    df_rel,
-                    x='Relevancia',
-                    y='Cantidad',
-                    color='Relevancia',
-                    title="Relevancia para RTP",
-                    color_discrete_map={'Sí': '#007bff', 'No': '#6c757d'}
-                )
-                st.plotly_chart(fig_rel, use_container_width=True)
-        
-        with col2:
-            medios_cols = [
-                'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *',
-                'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *',
-                'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ',
-                'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *',
-                'OTROS (Twitter, Facebook, You Tube, etc.).'
-            ]
-            medios = []
-            for col in medios_cols:
-                if col in df.columns:
-                    for val in df[col].dropna():
-                        if val:
-                            medios.append(val)
-            if medios:
-                medios_counts = pd.Series(medios).value_counts().reset_index()
-                medios_counts.columns = ['Medio', 'Cantidad']
-                st.dataframe(medios_counts.head(10), use_container_width=True)
+# Mostrar progreso
+if st.session_state.notas_extraidas:
+    total_notas = len(st.session_state.notas_extraidas)
+    actual = st.session_state.indice_nota + 1
+    st.progress(actual / total_notas if total_notas > 0 else 0)
+    st.caption(f"Nota {actual} de {total_notas}")
 
-    with tab4:
-        st.subheader("Exportar Datos")
-        st.write("### Vista previa")
-        st.dataframe(df[OFFICIAL_COLUMNS].head(10), use_container_width=True)
-        
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df[OFFICIAL_COLUMNS].to_excel(writer, sheet_name="Seguimiento_Medios", index=False)
-        
-        st.download_button(
-            label="📥 Descargar Excel",
-            data=output.getvalue(),
-            file_name=f"Seguimiento_RTP_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# Crear pestañas
+tab_texto, tab_campos, tab_previa = st.tabs(["📄 Texto Original", "📝 Campos de la Nota", "📋 Vista Previa"])
+
+# --- TAB 1: TEXTO ORIGINAL ---
+with tab_texto:
+    if st.session_state.nota_actual.get('texto_original'):
+        st.markdown("### Texto extraído de la nota")
+        st.text_area(
+            "Texto original",
+            value=st.session_state.nota_actual['texto_original'],
+            height=400,
+            key="texto_original_display",
+            disabled=True
         )
+        
+        # Botones de navegación
+        col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
+        with col1:
+            if st.button("⬅️ Anterior") and st.session_state.indice_nota > 0:
+                st.session_state.indice_nota -= 1
+                texto = st.session_state.notas_extraidas[st.session_state.indice_nota]
+                campos = auto_detect_fields(texto)
+                campos['texto_original'] = texto
+                st.session_state.nota_actual = campos
+                st.rerun()
+        with col2:
+            if st.button("➡️ Siguiente") and st.session_state.indice_nota < len(st.session_state.notas_extraidas) - 1:
+                st.session_state.indice_nota += 1
+                texto = st.session_state.notas_extraidas[st.session_state.indice_nota]
+                campos = auto_detect_fields(texto)
+                campos['texto_original'] = texto
+                st.session_state.nota_actual = campos
+                st.rerun()
+        with col3:
+            if st.button("🔄 Detectar automático"):
+                if st.session_state.nota_actual.get('texto_original'):
+                    campos = auto_detect_fields(st.session_state.nota_actual['texto_original'])
+                    campos['texto_original'] = st.session_state.nota_actual['texto_original']
+                    st.session_state.nota_actual = campos
+                    st.rerun()
+    else:
+        st.info("No hay texto cargado. Sube un PDF o selecciona una nota.")
 
-else:
-    st.info("👈 Sube un archivo en la barra lateral o agrega una nota manual")
+# --- TAB 2: CAMPOS DE LA NOTA ---
+with tab_campos:
+    st.markdown("### Asigna el texto a cada campo")
     
-    with st.expander("📖 Guía de uso"):
-        st.markdown("""
-        ### 📊 Cómo usar el sistema
+    # Usar un formulario para evitar recargas constantes
+    with st.form(key="form_nota"):
+        # Dividir en columnas para mejor organización
+        col_a, col_b = st.columns(2)
         
-        **1. Sin IA (recomendado para empezar)**
-        - Sube tu PDF y se extraerán las notas automáticamente
-        - Los títulos se limpian de fechas y encabezados
+        with col_a:
+            st.markdown("#### 📋 Información básica")
+            
+            # Título
+            titulo = st.text_area(
+                "📌 Título de la nota",
+                value=get_detected_value('Título de la nota', st.session_state.nota_actual),
+                height=60,
+                key="campo_titulo",
+                placeholder="Pega el título aquí o usa la detección automática"
+            )
+            
+            # Tema
+            tema = st.text_input(
+                "📂 Tema de la nota",
+                value=get_detected_value('Tema de la nota', st.session_state.nota_actual),
+                key="campo_tema",
+                placeholder="Ej: Movilidad CDMX, Accidentes, Nuevas rutas..."
+            )
+            
+            # Tono
+            tono = st.selectbox(
+                "🎯 Tono de la nota",
+                ["Informativo", "Positivo", "Negativo"],
+                index=["Informativo", "Positivo", "Negativo"].index(
+                    get_detected_value('Informativo / Positivo/ Negativo', st.session_state.nota_actual) or "Informativo"
+                ),
+                key="campo_tono"
+            )
+            
+            # Relevancia
+            relevancia = st.selectbox(
+                "🎯 ¿Es relevante para RTP?",
+                ["Sí", "No"],
+                index=0 if get_detected_value('RTP, ¿Es relevante en la nota?', st.session_state.nota_actual) == "Sí" else 1,
+                key="campo_relevancia"
+            )
         
-        **2. Con IA (requiere API Key)**
-        - Mayor precisión en la extracción
-        - Mejor identificación de medios y autores
+        with col_b:
+            st.markdown("#### 📎 Información del medio")
+            
+            # Medio
+            medio = st.text_input(
+                "📰 Medio de comunicación",
+                value=get_detected_value('Medio', st.session_state.nota_actual),
+                key="campo_medio",
+                placeholder="Ej: El Universal, Reforma, Milenio..."
+            )
+            
+            # Autor
+            autor = st.text_input(
+                "✍️ Autor",
+                value=get_detected_value('Autor', st.session_state.nota_actual),
+                key="campo_autor",
+                placeholder="Nombre del autor o Redacción"
+            )
+            
+            # Link
+            link = st.text_input(
+                "🔗 LINK",
+                value=get_detected_value('LINK', st.session_state.nota_actual),
+                key="campo_link",
+                placeholder="https://..."
+            )
+            
+            # Tipo de medio (radio, tv, digital, impreso, otros)
+            tipo_medio = st.selectbox(
+                "📻 Tipo de medio",
+                [
+                    "MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *",
+                    "MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *",
+                    "MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ",
+                    "MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *",
+                    "OTROS (Twitter, Facebook, You Tube, etc.)."
+                ],
+                index=0,
+                key="campo_tipo_medio"
+            )
         
-        **3. Edición manual**
-        - Puedes agregar notas manualmente
-        - Los títulos se pueden editar en la tabla
+        # Resumen - Ancho completo
+        st.markdown("#### 📝 Resumen de la nota")
+        resumen = st.text_area(
+            "RESUMEN DE LA NOTA (RTP)",
+            value=get_detected_value('RESUMEN  DE LA NOTA (RTP)', st.session_state.nota_actual),
+            height=150,
+            key="campo_resumen",
+            placeholder="Pega el resumen de la nota aquí"
+        )
         
-        ### 📝 Formato esperado del PDF
-        - Síntesis informativa con secciones "SÍNTESIS INFORMATIVA" y "NOTAS DE MOVILIDAD"
-        - Títulos en mayúsculas o negritas
-        - Mención de "MEDIOS:" o "Medio:"
-        - Autor y URL si están disponibles
-        """)
+        # Botones de acción
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+        
+        with col_btn1:
+            submitted = st.form_submit_button("💾 Guardar Nota", use_container_width=True)
+        
+        with col_btn2:
+            if st.form_submit_button("⏭️ Guardar y Siguiente", use_container_width=True):
+                submitted = True
+                avanzar = True
+        
+        with col_btn3:
+            if st.form_submit_button("❌ Descartar", use_container_width=True):
+                st.session_state.nota_actual = {}
+                st.rerun()
+        
+        # Procesar guardado
+        if submitted:
+            if titulo.strip():
+                # Crear registro completo
+                today = datetime.now()
+                nota_completa = {
+                    'Año': today.year,
+                    '# Mes': today.month,
+                    'Mes': today.strftime("%B").capitalize(),
+                    'Fecha ': today.strftime("%Y-%m-%d"),
+                    'Título de la nota': titulo.strip(),
+                    'RTP, ¿Es relevante en la nota?': relevancia,
+                    'Tema de la nota': tema.strip() or 'General',
+                    'Campaña': map_campana(tono),
+                    'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ': medio if tipo_medio == 'MEDIOS ELECTRÓNICOS TRADICIONALES: RADIO * ' else None,
+                    'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *': medio if tipo_medio == 'MEDIOS ELECTRÓNICOS TRADICIONALES: TELEVISIÓN *' else None,
+                    'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *': medio if tipo_medio == 'MEDIOS DE COMUNICACIÓN DIGITALES (Internet: portales de noticias, canales de tv y radio digitales) *' else None,
+                    'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *': medio if tipo_medio == 'MEDIOS IMPRESOS (Publicación de inserciones en revistas y periódicos) *' else None,
+                    'OTROS (Twitter, Facebook, You Tube, etc.).': medio if tipo_medio == 'OTROS (Twitter, Facebook, You Tube, etc.).' else None,
+                    'Informativo / Positivo/ Negativo': tono,
+                    'LINK': link.strip(),
+                    'Autor': autor.strip() or 'Redacción',
+                    'PUBLICACIÓN BOLETÍN': 'NO',
+                    'RESUMEN  DE LA NOTA (RTP)': resumen.strip()
+                }
+                
+                st.session_state.notas_capturadas.append(nota_completa)
+                st.success(f"✅ Nota {len(st.session_state.notas_capturadas)} guardada correctamente")
+                
+                # Avanzar a la siguiente nota
+                if st.session_state.indice_nota < len(st.session_state.notas_extraidas) - 1:
+                    st.session_state.indice_nota += 1
+                    texto = st.session_state.notas_extraidas[st.session_state.indice_nota]
+                    campos = auto_detect_fields(texto)
+                    campos['texto_original'] = texto
+                    st.session_state.nota_actual = campos
+                else:
+                    st.session_state.nota_actual = {}
+                    st.info("🎉 ¡Todas las notas han sido procesadas!")
+                
+                st.rerun()
+            else:
+                st.error("⚠️ El título es obligatorio para guardar la nota")
+
+# --- TAB 3: VISTA PREVIA ---
+with tab_previa:
+    if st.session_state.notas_capturadas:
+        st.markdown("### 📋 Notas capturadas")
+        df_preview = pd.DataFrame(st.session_state.notas_capturadas)
+        st.dataframe(df_preview[OFFICIAL_COLUMNS], use_container_width=True, height=400)
+        
+        # Exportar
+        st.markdown("### 📥 Exportar datos")
+        
+        col_exp1, col_exp2 = st.columns(2)
+        
+        with col_exp1:
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                df_preview[OFFICIAL_COLUMNS].to_excel(writer, sheet_name="Seguimiento_Medios", index=False)
+            
+            st.download_button(
+                label="📥 Descargar Excel",
+                data=output.getvalue(),
+                file_name=f"Seguimiento_RTP_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        
+        with col_exp2:
+            if st.button("🗑️ Limpiar todas", use_container_width=True):
+                st.session_state.notas_capturadas = []
+                st.rerun()
+    else:
+        st.info("No hay notas capturadas aún. Usa la pestaña 'Campos de la Nota' para capturar.")
+
+# --- INSTRUCCIONES ---
+with st.expander("📖 ¿Cómo usar esta herramienta?"):
+    st.markdown("""
+    ### 📊 Sistema de Captura de Notas RTP
+    
+    **1. Carga un archivo:**
+    - **PDF**: Sube una síntesis informativa para extraer notas automáticamente
+    - **Excel**: Carga un archivo existente para continuar trabajando
+    
+    **2. Navega entre notas:**
+    - Usa los botones **Anterior/Siguiente** para moverte entre notas
+    - La detección automática intenta llenar los campos por ti
+    
+    **3. Asigna los campos:**
+    - **Título**: El encabezado de la nota
+    - **Tema**: Clasifica la nota (Movilidad, Accidentes, etc.)
+    - **Tono**: Positivo, Negativo o Informativo
+    - **Relevancia**: ¿Habla sobre RTP?
+    - **Medio/Autor/Link**: Información de la fuente
+    - **Resumen**: El contenido de la nota
+    
+    **4. Guarda la nota:**
+    - **Guardar Nota**: Guarda la nota actual
+    - **Guardar y Siguiente**: Guarda y pasa a la siguiente nota
+    
+    **5. Exporta:**
+    - Descarga todas las notas capturadas en formato Excel
+    - El archivo mantiene la estructura exacta de la plantilla RTP
+    """)
